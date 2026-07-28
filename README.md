@@ -176,6 +176,84 @@ cp data/metro_schematic_layout.json var/metro/layout.json
 
 这些行为同时由内部 Learn 测试和公开运行时测试覆盖。
 
+## 学习体验模式
+
+公交和地铁共用一套 Learn 状态机、Practice Engine、Experience Controller、镜头控制器和
+Renderer 合同，但可采用不同的体验 Profile：
+
+| Profile | 说明 |
+|---|---|
+| `standard` | 标准线路聚焦、平滑车辆和三地图切换 |
+| `immersive` | 增加全网/单线 Flip、沉浸缩放、扁平图镜头跟踪、到站脉冲和完整返回时序 |
+
+默认值为：
+
+```text
+Bus   = standard
+Metro = immersive
+```
+
+内部学习页：
+
+```text
+http://127.0.0.1:8000/bus/learn
+http://127.0.0.1:8000/metro/learn
+```
+
+页面顶部的“标准体验 / 沉浸体验”开关会分别保存到：
+
+```text
+localStorage["transit.learn.experience.bus"]
+localStorage["transit.learn.experience.metro"]
+```
+
+URL 可为本次访问临时指定 Profile，且优先于 LocalStorage 和服务端默认值：
+
+```text
+http://127.0.0.1:8000/bus/learn?experience=immersive
+http://127.0.0.1:8000/metro/learn?experience=standard
+```
+
+服务端默认值由 `.env` 控制：
+
+```dotenv
+TRANSIT_LEARN_EXPERIENCE_BUS=standard
+TRANSIT_LEARN_EXPERIENCE_METRO=immersive
+TRANSIT_LEARN_ALLOW_EXPERIENCE_OVERRIDE=true
+```
+
+只接受 `standard` 和 `immersive`；非法配置会回退到 Bus `standard`、Metro
+`immersive`。修改后重启 `python -m transit_explorer serve internal`。
+
+Metro 沉浸体验包含全网/单线 Flip、单线沉浸缩放、带死区和前方留白的阻尼镜头、手势
+暂停与下一次行程更新恢复、到站脉冲、正反向进度，以及先缩放再翻回全网的返回流程。
+Bus 默认保持标准体验；按需启用沉浸体验时复用同一个 Controller，但仍使用公交 geometry、
+公交车和公交主题。超长公交线路会降低镜头强度，练习正确性不受影响。
+
+切换体验不会重置当前线路、方向、当前/下一站、已输入内容、计时、准确率、车辆位置或
+地图模式；扁平动画、动画地图和真实地图仍共享同一份 JourneyFrame。
+
+公开服务的 `/api/{network}/runtime` 返回相同 Profile 合同，并明确标记
+`protectedGeometry: true`。公开沉浸镜头只使用保护性栅格和量化锚点，不读取或恢复精确
+`d`、`points`、`x/y` 或源布局。
+
+## 内部项目导航
+
+所有内部页面顶部固定显示同一组七项导航，顺序和地址如下：
+
+| 名称 | 地址 |
+|---|---|
+| 公交全线 | `/bus` |
+| 地铁全线 | `/metro` |
+| 公交练习 | `/bus/learn` |
+| 地铁练习 | `/metro/learn` |
+| 公交收集 | `/bus/collector` |
+| 地铁收集 | `/metro/collector` |
+| 地铁微调工作站 | `/studio` |
+
+窄屏下导航横向滚动，不会隐藏入口。Learn 的项目导航与练习模式、地图样式、体验 Profile
+分层显示。
+
 ## 公开发布与安全边界
 
 `transit-explorer publish public` 在可信构建机直接读取 `var/` 中的精确线网和可选人工布局，

@@ -7,15 +7,18 @@
       this.view = {x: 0, y: 0, w: 1280, h: 720};
       this.dragging = false;
       this.last = null;
+      this.manualHandler = null;
       this.bind();
     }
 
     set(view) { this.view = {...view}; this.commit(); }
     commit() { this.svg.setAttribute('viewBox', `${this.view.x} ${this.view.y} ${this.view.w} ${this.view.h}`); }
+    setManualHandler(handler) { this.manualHandler = handler; }
 
     bind() {
       this.svg.addEventListener('pointerdown', event => {
         if (event.button !== 0) return;
+        this.manualHandler?.();
         this.dragging = true;
         this.last = [event.clientX, event.clientY];
         this.svg.setPointerCapture?.(event.pointerId);
@@ -32,6 +35,7 @@
       this.svg.addEventListener('pointercancel', end);
       this.svg.addEventListener('wheel', event => {
         event.preventDefault();
+        this.manualHandler?.();
         const rect = this.svg.getBoundingClientRect();
         const ux = Z.clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
         const uy = Z.clamp((event.clientY - rect.top) / Math.max(1, rect.height), 0, 1);

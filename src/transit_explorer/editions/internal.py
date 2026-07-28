@@ -15,7 +15,7 @@ from ..networks.bus.router import initialize as initialize_bus
 from ..networks.bus.router import router as bus_router
 from ..networks.metro.router import initialize as initialize_metro
 from ..networks.metro.router import router as metro_router
-from ..settings import WEB_DIR, browser_map_config
+from ..settings import WEB_DIR, browser_map_config, learn_experience_config
 
 
 @asynccontextmanager
@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
                     "publishing": False,
                 },
                 "amap": browser_map_config(include_security_code=include_security),
+                "learnExperience": learn_experience_config(),
             }
         )
 

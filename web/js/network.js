@@ -1,8 +1,8 @@
 const $ = selector => document.querySelector(selector);
 const network = location.pathname.startsWith('/metro') ? 'metro' : 'bus';
 const product = network === 'metro'
-  ? {name: '深圳地铁', mark: '轨', stationZoom: 2, collector: '/metro/collector'}
-  : {name: '深圳公交', mark: '巴', stationZoom: 2.6, collector: '/bus/collector'};
+  ? {name: '深圳地铁', mark: '轨', stationZoom: 2}
+  : {name: '深圳公交', mark: '巴', stationZoom: 2.6};
 const apiBase = `/api/${network}`;
 
 const elements = {
@@ -23,8 +23,6 @@ function configurePage() {
   $('#brandMark').textContent = product.mark;
   $('#brandTitle').textContent = `${product.name}线网`;
   $('#sidebarTitle').textContent = `${product.name}线路网络`;
-  $('#collectorNav').href = product.collector;
-  document.querySelector(`[data-network-nav="${network}"]`)?.classList.add('active');
   $('#legend').innerHTML = network === 'metro'
     ? '总览显示全部地铁线路；点击线路后高亮并显示完整站序。<br>黄色站点表示由官方站序估算的位置。'
     : '总览只加载简化线路；放大后按视口加载详细折线和站点。<br>黄色站点表示由站序插值得到的近似站位。';

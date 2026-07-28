@@ -30,8 +30,11 @@ const endpoints = {
 export const transitApi = {
   networkType,
   endpoints,
-  async publicConfig() {
-    const runtime = await request('/api/runtime');
+  runtime() {
+    return request('/api/runtime');
+  },
+  async publicConfig(runtimePayload = null) {
+    const runtime = runtimePayload || await request('/api/runtime');
     return {...(runtime.amap || {}), admin_enabled: runtime.edition === 'internal'};
   },
   overview() {

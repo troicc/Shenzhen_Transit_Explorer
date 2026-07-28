@@ -2,8 +2,8 @@ const $ = selector => document.querySelector(selector);
 const network = location.pathname.startsWith('/metro') ? 'metro' : 'bus';
 const apiBase = `/api/${network}`;
 const product = network === 'metro'
-  ? {name: '深圳地铁', mark: '轨', batch: 16, maxBatch: 100, map: '/metro', learn: '/metro/learn'}
-  : {name: '深圳公交', mark: '巴', batch: 100, maxBatch: 1000, map: '/bus', learn: '/bus/learn'};
+  ? {name: '深圳地铁', mark: '轨', batch: 16, maxBatch: 100, map: '/metro'}
+  : {name: '深圳公交', mark: '巴', batch: 100, maxBatch: 1000, map: '/bus'};
 
 const state = {
   running: false, processed: 0, target: 0, AMap: null, lineSearch: null,
@@ -24,8 +24,6 @@ function configurePage() {
   $('#brandMark').textContent = product.mark;
   $('#brandTitle').textContent = `${product.name}采集`;
   $('#brandSubtitle').textContent = network === 'metro' ? '官方站序 × 高德几何采集器' : '官方目录 × 高德线路采集器';
-  $('#learnNav').href = product.learn;
-  $('#collectorNav').href = `/${network}/collector`;
   elements.batchSize.value = product.batch;
   elements.batchSize.max = product.maxBatch;
   elements.syncBtn.hidden = network !== 'metro';

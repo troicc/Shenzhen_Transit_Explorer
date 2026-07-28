@@ -1,6 +1,6 @@
 import {
-  bboxOf, clamp, easeOutCubic, lerp, pathD, pointAtProgress, pointSegmentDistance,
-  pathSlice, routeColor, stationTravelPhase, stationVisualState, svgEl, travelIndex,
+  clamp, easeOutCubic, lerp, pathD, pointAtProgress, pointSegmentDistance,
+  pathSlice, routeColor, stationTravelPhase, stationVisualState, svgEl,
 } from './core.js?v=3';
 import {computeFocusView, layoutStationLabels} from './geometry.js';
 
@@ -203,12 +203,18 @@ export class OverviewRenderer {
   }
 }
 
+export function immersiveScaleFactor(stationCount, strong = false) {
+  const base = strong ? .49 : .62;
+  return clamp(base + 8 / Math.max(2, stationCount), .50, .72);
+}
+
 export class FocusRenderer {
-  constructor({svg, routeLayer, stationLayer, labelLayer, train, stage, onStationClick}) {
+  constructor({svg, routeLayer, stationLayer, labelLayer, effectLayer, train, stage, onStationClick}) {
     this.svg = svg;
     this.routeLayer = routeLayer;
     this.stationLayer = stationLayer;
     this.labelLayer = labelLayer;
+    this.effectLayer = effectLayer;
     this.train = train;
     this.stage = stage;
     this.onStationClick = onStationClick;
@@ -218,23 +224,27 @@ export class FocusRenderer {
     this.stationNodes = [];
     this.view = {x: 0, y: 0, w: 1000, h: 600};
     this.viewFrame = 0;
+    this.viewAnimationToken = 0;
     this.lastDynamic = null;
     this.lastFollowKey = null;
     this.vehicleFacingNode = train.querySelector('.vehicle-facing');
   }
 
   clear() {
+    this.cancelViewAnimation();
     this.route = null;
     this.geometry = null;
     this.routeLayer.innerHTML = '';
     this.stationLayer.innerHTML = '';
     this.labelLayer.innerHTML = '';
+    if (this.effectLayer) this.effectLayer.innerHTML = '';
     this.train.setAttribute('opacity', '0');
     this.lastDynamic = null;
     this.lastFollowKey = null;
   }
 
   setRoute(route, geometry, color) {
+    this.cancelViewAnimation();
     this.route = route;
     this.geometry = geometry;
     this.color = color;
@@ -242,6 +252,7 @@ export class FocusRenderer {
     this.routeLayer.innerHTML = '';
     this.stationLayer.innerHTML = '';
     this.labelLayer.innerHTML = '';
+    if (this.effectLayer) this.effectLayer.innerHTML = '';
     this.lastFollowKey = null;
 
     const data = pathD(geometry.path);
@@ -265,7 +276,38 @@ export class FocusRenderer {
 
   }
 
+  setVehicleType(type) {
+    const template = this.svg.querySelector(`#${type}VehicleTemplate`);
+    const content = this.train.querySelector('.vehicle-content') || this.train;
+    if (!template || !content) return false;
+    const clone = template.cloneNode(true);
+    clone.removeAttribute('id');
+    content.replaceChildren(clone);
+    this.train.dataset.vehicleType = type;
+    this.vehicleFacingNode = this.train.querySelector('.vehicle-facing');
+    return true;
+  }
+
+  getView() { return {...this.view}; }
+
+  getRouteBounds() { return this.geometry ? [...this.geometry.bbox] : null; }
+
+  pointAtProgress(progress) {
+    return this.geometry ? pointAtProgress(this.geometry.path, clamp(progress, 0, 1)) : null;
+  }
+
+  pointAhead(progress, reverse = false, distanceHint = null) {
+    if (!this.geometry) return null;
+    const count = Number(distanceHint) || this.route?.stops?.length || 2;
+    const step = 1 / Math.max(18, (count - 1) * 1.45);
+    return this.pointAtProgress(clamp(progress + (reverse ? -step : step), 0, 1));
+  }
+
   fit(practiceVisible, animate = true) {
+    return this.fitFullRoute({practiceVisible, animate});
+  }
+
+  fitFullRoute({practiceVisible = false, animate = true, duration = 430} = {}) {
     if (!this.geometry) return;
     const rectangle = this.stage.getBoundingClientRect();
     const target = computeFocusView(
@@ -275,7 +317,31 @@ export class FocusRenderer {
       practiceVisible,
       this.bottomInset(practiceVisible),
     );
-    this.setView(target, animate);
+    return this.setView(target, {animate, duration, commit: true});
+  }
+
+  fitImmersive(progress, {reverse = false, strong = false, practiceVisible = false, animate = true, duration = 620} = {}) {
+    if (!this.geometry) return Promise.resolve(false);
+    const rectangle = this.stage.getBoundingClientRect();
+    const full = computeFocusView(
+      this.geometry.bbox,
+      rectangle.width,
+      rectangle.height,
+      practiceVisible,
+      this.bottomInset(practiceVisible),
+    );
+    const factor = immersiveScaleFactor(this.route?.stops?.length || 2, strong);
+    const width = Math.max(100, full.w * factor);
+    const height = width * rectangle.height / Math.max(1, rectangle.width);
+    const point = this.pointAtProgress(progress) || [full.x + full.w / 2, full.y + full.h / 2];
+    const ahead = this.pointAhead(progress, reverse) || point;
+    const centerX = lerp(point[0], ahead[0], .27);
+    const centerY = lerp(point[1], ahead[1], .27);
+    return this.setView({x: centerX - width * .48, y: centerY - height * .42, w: width, h: height}, {
+      animate,
+      duration,
+      commit: true,
+    });
   }
 
   bottomInset(practiceVisible) {
@@ -287,55 +353,40 @@ export class FocusRenderer {
     return clamp(stageBox.bottom - panelBox.top + 12, 0, stageBox.height * .72);
   }
 
-  followJourney(currentOriginalIndex, reverse) {
-    if (!this.geometry || this.route.stops.length <= 8) return;
-    const count = this.route.stops.length;
-    const current = travelIndex(currentOriginalIndex, count, reverse);
-    const followKey = `${currentOriginalIndex}:${reverse}`;
-    if (followKey === this.lastFollowKey) return;
-    this.lastFollowKey = followKey;
-
-    const points = [];
-    const first = Math.max(0, current - 2);
-    const last = Math.min(count - 1, current + 5);
-    for (let index = first; index <= last; index += 1) {
-      const originalIndex = travelIndex(index, count, reverse);
-      const point = this.geometry.stationPoints[originalIndex];
-      if (point) points.push(point);
-    }
-    if (points.length < 2) return;
-    const rectangle = this.stage.getBoundingClientRect();
-    const target = computeFocusView(
-      bboxOf(points),
-      rectangle.width,
-      rectangle.height,
-      true,
-      this.bottomInset(true),
-    );
-    this.setView(target, true);
+  cancelViewAnimation() {
+    this.viewAnimationToken += 1;
+    cancelAnimationFrame(this.viewFrame);
+    this.viewFrame = 0;
   }
 
-  setView(target, animate = true) {
-    cancelAnimationFrame(this.viewFrame);
+  setView(target, options = {}) {
+    const normalized = typeof options === 'boolean' ? {animate: options} : options;
+    const {animate = false, duration = 430} = normalized;
+    this.cancelViewAnimation();
+    const token = this.viewAnimationToken;
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (!animate || reduceMotion) {
       this.view = {...target};
       this.applyView();
-      return;
+      return Promise.resolve(true);
     }
     const start = {...this.view};
     const startedAt = performance.now();
-    const step = now => {
-      const ratio = clamp((now - startedAt) / 430, 0, 1);
-      const eased = easeOutCubic(ratio);
-      this.view = {
-        x: lerp(start.x, target.x, eased), y: lerp(start.y, target.y, eased),
-        w: lerp(start.w, target.w, eased), h: lerp(start.h, target.h, eased),
+    return new Promise(resolve => {
+      const step = now => {
+        if (token !== this.viewAnimationToken) { resolve(false); return; }
+        const ratio = clamp((now - startedAt) / duration, 0, 1);
+        const eased = easeOutCubic(ratio);
+        this.view = {
+          x: lerp(start.x, target.x, eased), y: lerp(start.y, target.y, eased),
+          w: lerp(start.w, target.w, eased), h: lerp(start.h, target.h, eased),
+        };
+        this.applyView();
+        if (ratio < 1) this.viewFrame = requestAnimationFrame(step);
+        else { this.viewFrame = 0; resolve(true); }
       };
-      this.applyView();
-      if (ratio < 1) this.viewFrame = requestAnimationFrame(step);
-    };
-    this.viewFrame = requestAnimationFrame(step);
+      this.viewFrame = requestAnimationFrame(step);
+    });
   }
 
   applyView() {
@@ -349,6 +400,7 @@ export class FocusRenderer {
   }
 
   panByPixels(dx, dy) {
+    this.cancelViewAnimation();
     const rectangle = this.stage.getBoundingClientRect();
     this.view.x -= dx / Math.max(1, rectangle.width) * this.view.w;
     this.view.y -= dy / Math.max(1, rectangle.height) * this.view.h;
@@ -356,6 +408,7 @@ export class FocusRenderer {
   }
 
   zoomAt(clientX, clientY, factor) {
+    this.cancelViewAnimation();
     const rectangle = this.stage.getBoundingClientRect();
     const ratioX = (clientX - rectangle.left) / Math.max(1, rectangle.width);
     const ratioY = (clientY - rectangle.top) / Math.max(1, rectangle.height);
@@ -366,10 +419,30 @@ export class FocusRenderer {
     this.applyView();
   }
 
+  beginManualNavigation() { this.cancelViewAnimation(); }
+
+  endManualNavigation() {}
+
+  showArrivalPulse(originalStationIndex) {
+    if (!this.effectLayer || !this.geometry) return false;
+    const point = this.geometry.stationPoints[originalStationIndex];
+    if (!point) return false;
+    const rectangle = this.stage.getBoundingClientRect();
+    const unitPerPixel = this.view.w / Math.max(1, rectangle.width);
+    const group = svgEl('g', {class: 'arrival-pulse-group', 'data-station-index': originalStationIndex});
+    group.append(
+      svgEl('circle', {class: 'arrival-pulse outer', cx: point[0], cy: point[1], r: 7 * unitPerPixel}),
+      svgEl('circle', {class: 'arrival-pulse inner', cx: point[0], cy: point[1], r: 6 * unitPerPixel}),
+      svgEl('circle', {class: 'arrival-flash', cx: point[0], cy: point[1], r: 5 * unitPerPixel}),
+    );
+    this.effectLayer.append(group);
+    setTimeout(() => group.remove(), 1120);
+    return true;
+  }
+
   renderDynamic({currentOriginalIndex, nextOriginalIndex, reverse, typingRatio, allLabels, journeyActive = false}) {
     if (!this.route || !this.geometry) return;
     this.lastDynamic = {currentOriginalIndex, nextOriginalIndex, reverse, typingRatio, allLabels, journeyActive};
-    if (journeyActive) this.followJourney(currentOriginalIndex, reverse);
     const rectangle = this.stage.getBoundingClientRect();
     const unitPerPixel = this.view.w / Math.max(1, rectangle.width);
     const stationRadius = 4.4 * unitPerPixel;
@@ -394,6 +467,7 @@ export class FocusRenderer {
     const nextProgress = nextOriginalIndex == null ? startProgress : (this.geometry.stationProgresses[nextOriginalIndex] ?? startProgress);
     const actualProgress = lerp(startProgress, nextProgress, typingRatio || 0);
     this.train.dataset.motionRatio = Number(typingRatio || 0).toFixed(4);
+    this.train.dataset.routeProgress = Number(actualProgress).toFixed(6);
     const traveledPath = reverse
       ? pathSlice(this.geometry.path, 1, actualProgress)
       : pathSlice(this.geometry.path, 0, actualProgress);

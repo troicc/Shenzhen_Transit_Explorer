@@ -4,73 +4,89 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#06101d">
-  <title>站粤公交 · 深圳公交拼音与粤语学习</title>
+  <title>深圳交通站名学习</title>
+  <link rel="stylesheet" href="/static/css/navigation.css">
   <link rel="stylesheet" href="/static/css/learn.css">
 </head>
 <body>
-<div class="app" id="app">
-  <main class="map-stage" id="mapStage" aria-label="深圳公交线路学习地图">
-    <canvas id="networkCanvas"></canvas>
-    <div id="realMap" class="real-map" aria-label="当前公交线路真实地图" aria-hidden="true"></div>
-    <svg id="focusSvg" role="img" aria-label="当前公交线路示意图">
-      <defs>
-        <pattern id="microGrid" width="48" height="48" patternUnits="userSpaceOnUse">
-          <path d="M48 0H0V48" fill="none" stroke="rgba(174,198,226,.045)" stroke-width="1"/>
-        </pattern>
-        <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
-          <feGaussianBlur stdDeviation="3.2" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-        <filter id="stationGlow" x="-150%" y="-150%" width="400%" height="400%">
-          <feGaussianBlur stdDeviation="5" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
-      <rect id="gridRect" class="grid-rect" x="0" y="0" width="10000" height="6000" fill="url(#microGrid)"/>
-      <g id="routeLayer"></g>
-      <g id="stationLayer"></g>
-      <g id="labelLayer"></g>
-      <g id="train" class="vehicle" opacity="0">
-        <ellipse class="vehicle-shadow" cx="0" cy="19" rx="15" ry="5"/>
-        <g class="vehicle-facing">
-          <rect class="vehicle-wheel left" x="-16" y="8" width="5" height="12" rx="2.5"/>
-          <rect class="vehicle-wheel right" x="11" y="8" width="5" height="12" rx="2.5"/>
-          <rect class="vehicle-bus-outline" x="-14" y="-20" width="28" height="40" rx="8"/>
-          <rect class="vehicle-body" x="-12" y="-18" width="24" height="36" rx="6"/>
-          <rect class="vehicle-destination" x="-8" y="-15" width="16" height="5" rx="2"/>
-          <rect class="vehicle-windshield" x="-9" y="-7" width="18" height="14" rx="3"/>
-          <path class="vehicle-window-divider" d="M0 -7V7"/>
-          <rect class="vehicle-front-panel" x="-10" y="9" width="20" height="6" rx="2.5"/>
-          <path class="vehicle-grille" d="M-4 11.5H4M-4 13.5H4"/>
-          <circle class="vehicle-headlight" cx="-7.5" cy="12" r="1.7"/>
-          <circle class="vehicle-headlight" cx="7.5" cy="12" r="1.7"/>
-          <rect class="vehicle-bumper" x="-9" y="16" width="18" height="2.5" rx="1.25"/>
-        </g>
-      </g>
-    </svg>
+<div class="app" id="app" data-experience="standard">
+  <main class="map-stage" id="mapStage" aria-label="深圳交通线路学习地图">
+    <div class="learn-flip-scene" id="learnFlipScene" data-face="overview">
+      <div class="learn-flip-card">
+        <section class="learn-face learn-face-overview" aria-label="全网总览">
+          <canvas id="networkCanvas"></canvas>
+        </section>
+        <section class="learn-face learn-face-route" aria-label="单线学习场景">
+          <div id="realMap" class="real-map" aria-label="当前线路真实地图" aria-hidden="true"></div>
+          <svg id="focusSvg" role="img" aria-label="当前线路示意图">
+            <defs>
+              <pattern id="microGrid" width="48" height="48" patternUnits="userSpaceOnUse">
+                <path d="M48 0H0V48" fill="none" stroke="rgba(174,198,226,.045)" stroke-width="1"/>
+              </pattern>
+              <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+                <feGaussianBlur stdDeviation="3.2" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+              <filter id="stationGlow" x="-150%" y="-150%" width="400%" height="400%">
+                <feGaussianBlur stdDeviation="5" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+              <g id="busVehicleTemplate" class="vehicle-facing">
+                <ellipse class="vehicle-shadow" cx="0" cy="19" rx="15" ry="5"/>
+                <rect class="vehicle-wheel left" x="-16" y="8" width="5" height="12" rx="2.5"/>
+                <rect class="vehicle-wheel right" x="11" y="8" width="5" height="12" rx="2.5"/>
+                <rect class="vehicle-bus-outline" x="-14" y="-20" width="28" height="40" rx="8"/>
+                <rect class="vehicle-body" x="-12" y="-18" width="24" height="36" rx="6"/>
+                <rect class="vehicle-destination" x="-8" y="-15" width="16" height="5" rx="2"/>
+                <rect class="vehicle-windshield" x="-9" y="-7" width="18" height="14" rx="3"/>
+                <path class="vehicle-window-divider" d="M0 -7V7"/>
+                <rect class="vehicle-front-panel" x="-10" y="9" width="20" height="6" rx="2.5"/>
+                <path class="vehicle-grille" d="M-4 11.5H4M-4 13.5H4"/>
+                <circle class="vehicle-headlight" cx="-7.5" cy="12" r="1.7"/>
+                <circle class="vehicle-headlight" cx="7.5" cy="12" r="1.7"/>
+                <rect class="vehicle-bumper" x="-9" y="16" width="18" height="2.5" rx="1.25"/>
+              </g>
+              <g id="metroVehicleTemplate" class="vehicle-facing vehicle-facing-metro">
+                <ellipse class="vehicle-shadow" cx="0" cy="15" rx="16" ry="5"/>
+                <circle class="vehicle-train-halo" cx="0" cy="0" r="19"/>
+                <rect class="vehicle-train-outline" x="-15" y="-17" width="30" height="34" rx="11"/>
+                <rect class="vehicle-train-body" x="-12.5" y="-14.5" width="25" height="29" rx="8.5"/>
+                <path class="vehicle-train-window" d="M-8 -8.5H8V1H-8Z"/>
+                <path class="vehicle-train-divider" d="M0 -8.5V1"/>
+                <circle class="vehicle-train-light" cx="-7" cy="7" r="1.8"/>
+                <circle class="vehicle-train-light" cx="7" cy="7" r="1.8"/>
+                <path class="vehicle-train-bumper" d="M-8 12H8"/>
+                <circle class="vehicle-wheel" cx="-7" cy="16" r="2.2"/>
+                <circle class="vehicle-wheel" cx="7" cy="16" r="2.2"/>
+              </g>
+            </defs>
+            <rect id="gridRect" class="grid-rect" x="0" y="0" width="10000" height="6000" fill="url(#microGrid)"/>
+            <g id="routeLayer"></g>
+            <g id="stationLayer"></g>
+            <g id="labelLayer"></g>
+            <g id="effectLayer"></g>
+            <g id="vehicle" class="vehicle" opacity="0"><g class="vehicle-content"></g></g>
+          </svg>
+        </section>
+      </div>
+    </div>
     <div class="ambient ambient-a"></div>
     <div class="ambient ambient-b"></div>
     <div class="loading" id="loading">
       <div class="loading-orbit"><span></span></div>
-      <strong>正在读取公交线网</strong>
-      <small>全网总览使用 Canvas，选中线路后再加载详细站点。</small>
+      <strong id="loadingTitle">正在读取交通线网</strong>
+      <small id="loadingText">正在准备全网总览和单线学习场景。</small>
     </div>
   </main>
 
   <header class="topbar">
-    <a class="brand" href="/bus/learn" aria-label="站粤公交首页">
-      <span class="brand-mark">粤</span>
-      <span class="brand-copy"><strong>站粤公交</strong><small>Shenzhen Bus Typing</small></span>
+    <a class="brand" href="/" aria-label="站名学习首页">
+      <span class="brand-mark">交</span>
+      <span class="brand-copy"><strong>站粤交通</strong><small>Shenzhen Transit Typing</small></span>
     </a>
-
-    <nav class="mode-switch" aria-label="练习模式">
-      <button class="mode-button active" data-mode="overview">线网</button>
-      <button class="mode-button" data-mode="timed">30 秒</button>
-      <button class="mode-button" data-mode="full">全线</button>
-    </nav>
-
+    <nav class="global-nav" data-global-nav aria-label="项目导航"></nav>
     <div class="top-actions">
-      <a class="glass-button text-button" href="/bus" title="打开地理全网图">地理图</a>
+      <a class="glass-button text-button" href="/" title="打开全网图">线网图</a>
       <button class="glass-button" id="homeButton" title="返回全网" aria-label="返回全网">⌂</button>
       <button class="glass-button text-button" id="reviewButton" title="校核当前站">校核</button>
       <div class="search-shell" id="searchShell">
@@ -81,6 +97,18 @@
       </div>
     </div>
   </header>
+
+  <section class="learn-controls" aria-label="练习内部控制">
+    <nav class="mode-switch" aria-label="练习模式">
+      <button class="mode-button active" data-mode="overview">线网</button>
+      <button class="mode-button" data-mode="timed">30 秒</button>
+      <button class="mode-button" data-mode="full">全线</button>
+    </nav>
+    <div class="experience-switch" id="experienceSwitch" aria-label="学习体验">
+      <button data-experience="standard" aria-pressed="false">标准体验</button>
+      <button data-experience="immersive" aria-pressed="false">沉浸体验</button>
+    </div>
+  </section>
 
   <section class="practice-toolbar" id="practiceToolbar" aria-label="练习导航">
     <button id="exitPracticeButton" class="practice-exit">← 退出练习</button>
@@ -96,12 +124,12 @@
   </section>
 
   <section class="intro" id="intro">
-    <div class="intro-pill"><span></span> 固定全网相对位置 · 单线轨道式重排</div>
-    <h1>沿着一条公交线路，<br>记住深圳的每一个站。</h1>
-    <p>搜索线路或直接点击线网。进入线路后，地图会切换为清晰的学习场景，并提供普通话拼音、粤语播报和逐站练习。</p>
+    <div class="intro-pill"><span></span> <b id="introPill">共享状态机 · 双网络体验</b></div>
+    <h1>沿着深圳交通，<br>记住每一个站。</h1>
+    <p id="introText">搜索线路或直接点击线网，进入站名拼音与粤语练习。</p>
     <div class="intro-actions">
       <button id="randomRouteButton" class="primary-button">随机选择一条线路</button>
-      <a href="/bus/collector" class="ghost-link admin-only">数据采集与复核 →</a>
+      <a href="/" class="ghost-link admin-only">数据采集与复核 →</a>
     </div>
   </section>
 
@@ -156,7 +184,7 @@
         <div class="pinyin-words" id="pinyinWords"></div>
         <div class="typing-cells" id="typingCells"></div>
         <input id="typingInput" class="typing-input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="输入站名拼音">
-        <div class="typing-feedback" id="typingFeedback">输入下一站拼音，公交车会平滑驶向它。</div>
+        <div class="typing-feedback" id="typingFeedback">输入下一站拼音，车辆会平滑驶向它。</div>
       </div>
       <div class="practice-stats">
         <div><strong id="timeStat">30</strong><span>秒</span></div>
@@ -209,6 +237,7 @@
   <div class="network-meta" id="networkMeta">—</div>
   <div class="toast" id="toast"></div>
 </div>
+<script type="module" src="/static/js/navigation.js"></script>
 <script type="module" src="/static/js/learn/app.js"></script>
 </body>
 </html>

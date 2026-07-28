@@ -1,18 +1,28 @@
-import {$, clamp, damp, debounce, escapeHtml, normalizePinyin, routeColor, showToast, travelIndex} from './core.js?v=3';
+import {$, clamp, damp, debounce, escapeHtml, lerp, normalizePinyin, routeColor, showToast, travelIndex} from './core.js?v=3';
 import {transitApi} from './api.js';
 import {buildRouteGeometry} from './geometry.js';
 import {deleteLocalAudio, getLocalAudio, putLocalAudio, StationAudioPlayer} from './audio.js';
+import {LearnExperience} from './experience.js';
+import {
+  fallbackExperienceProfile,
+  resolveExperienceProfile,
+  saveExperienceProfile,
+  userExperienceOverrideAllowed,
+} from './experience-profile.js';
 import {PracticeEngine} from './practice.js?v=3';
+import {learnProduct} from './product.js';
 import {RealMapFocusRenderer} from './real-map.js?v=3';
 import {FocusRenderer, OverviewRenderer} from './renderers.js?v=3';
 import {restoreTypingFocus} from './typing-focus.js?v=3';
 
+const product = learnProduct(transitApi.networkType);
+const reducedMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
 const elements = {
-  app: $('#app'), stage: $('#mapStage'), canvas: $('#networkCanvas'), svg: $('#focusSvg'), realMap: $('#realMap'),
-  routeLayer: $('#routeLayer'), stationLayer: $('#stationLayer'), labelLayer: $('#labelLayer'), train: $('#train'),
+  app: $('#app'), stage: $('#mapStage'), flipScene: $('#learnFlipScene'), canvas: $('#networkCanvas'), svg: $('#focusSvg'), realMap: $('#realMap'),
+  routeLayer: $('#routeLayer'), stationLayer: $('#stationLayer'), labelLayer: $('#labelLayer'), effectLayer: $('#effectLayer'), train: $('#vehicle'),
   loading: $('#loading'), intro: $('#intro'), routeCard: $('#routeCard'), stationCard: $('#stationCard'),
   practicePanel: $('#practicePanel'), searchShell: $('#searchShell'), searchInput: $('#searchInput'), searchResults: $('#searchResults'),
-  reviewDrawer: $('#reviewDrawer'), resultModal: $('#resultModal'), typingInput: $('#typingInput'),
+  reviewDrawer: $('#reviewDrawer'), resultModal: $('#resultModal'), typingInput: $('#typingInput'), experienceSwitch: $('#experienceSwitch'),
 };
 
 const state = {
@@ -39,6 +49,10 @@ const state = {
   stationCompletionToken: 0,
   viewMode: 'flat',
   mapReady: false,
+  runtime: null,
+  experienceProfile: fallbackExperienceProfile(transitApi.networkType),
+  allowExperienceOverride: true,
+  returning: false,
   journeyMotionFrame: 0,
   journeyMotionRatio: 0,
   journeyMotionTarget: 0,
@@ -52,12 +66,23 @@ const focusRenderer = new FocusRenderer({
   routeLayer: elements.routeLayer,
   stationLayer: elements.stationLayer,
   labelLayer: elements.labelLayer,
+  effectLayer: elements.effectLayer,
   train: elements.train,
   stage: elements.stage,
   onStationClick: originalIndex => selectStationByOriginalIndex(originalIndex),
 });
 const audioPlayer = new StationAudioPlayer();
 const realMapRenderer = new RealMapFocusRenderer({container: elements.realMap});
+const experience = new LearnExperience({
+  profile: state.experienceProfile,
+  network: state.networkType,
+  appElement: elements.app,
+  flipScene: elements.flipScene,
+  focusRenderer,
+  overviewRenderer,
+  realMapRenderer,
+  reducedMotion,
+});
 const practice = new PracticeEngine({
   onChange: snapshot => renderPractice(snapshot),
   onFinish: snapshot => showResult(snapshot),
@@ -115,6 +140,43 @@ function routeMetaText() {
   return `${state.route.stops.length} 站 · ${transfer} 个多线路站 · 匹配 ${Math.round((state.route.score || 0) * 100)}%${estimated ? ` · ${estimated} 个估算站点` : ''}`;
 }
 
+function updateExperienceControls() {
+  elements.experienceSwitch.hidden = !state.allowExperienceOverride;
+  elements.experienceSwitch.querySelectorAll('[data-experience]').forEach(button => {
+    const active = button.dataset.experience === state.experienceProfile;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+async function setExperienceProfile(profile, {persist = false, reframe = true} = {}) {
+  state.experienceProfile = experience.setProfile(profile);
+  if (persist) saveExperienceProfile(state.networkType, state.experienceProfile);
+  updateExperienceControls();
+  if (!state.route || !reframe) return;
+  const frame = journeyFrame(state.journeyMotionRatio);
+  if (state.mode === 'timed' || state.mode === 'full') await experience.enterPractice(frame);
+  else await experience.enterRoute(frame);
+  renderDynamic();
+  restorePracticeTypingFocus();
+}
+
+function fitCurrentExperience({animate = true, forcePractice = null} = {}) {
+  if (!state.route) return Promise.resolve(false);
+  const practiceVisible = forcePractice ?? (state.mode === 'timed' || state.mode === 'full');
+  const frame = journeyFrame(state.journeyMotionRatio);
+  if (state.experienceProfile === 'immersive') {
+    return focusRenderer.fitImmersive(frame.routeProgress, {
+      reverse: state.reverse,
+      strong: practiceVisible,
+      practiceVisible,
+      animate,
+      duration: animate ? 620 : 0,
+    });
+  }
+  return focusRenderer.fitFullRoute({practiceVisible, animate, duration: animate ? 430 : 0});
+}
+
 function setActiveMode(mode) {
   document.querySelectorAll('.mode-button').forEach(button => button.classList.toggle('active', button.dataset.mode === mode));
 }
@@ -153,6 +215,7 @@ async function setViewMode(mode) {
     renderDynamic();
     return;
   }
+  experience.suspendForManualNavigation();
   if (!state.mapReady) {
     showToast('尚未配置高德 Web JS Key，继续使用扁平动画');
     return;
@@ -185,12 +248,17 @@ function rebuildFocusScene({fit = true, animate = true} = {}) {
   if (!state.route) return;
   const geometry = currentGeometry();
   focusRenderer.setRoute(state.route, geometry, state.color);
-  if (fit) focusRenderer.fit(state.mode === 'timed' || state.mode === 'full', animate);
+  focusRenderer.setVehicleType(product.vehicle);
+  experience.setProfile(state.experienceProfile);
   renderDynamic();
+  if (fit) fitCurrentExperience({animate});
 }
 
 async function selectRoute(routeId, stationName = null) {
   const token = ++state.loadingRouteToken;
+  const enteringFromOverview = !state.route;
+  state.returning = false;
+  elements.app.classList.remove('returning');
   elements.loading.classList.remove('hidden');
   elements.loading.querySelector('strong').textContent = '正在进入线路';
   elements.loading.querySelector('small').textContent = '正在加载详细折线、站序、拼音和语言设置。';
@@ -208,6 +276,7 @@ async function selectRoute(routeId, stationName = null) {
     state.pendingStationName = stationName;
     state.geometryCache.clear();
     realMapRenderer.hide();
+    if (enteringFromOverview) experience.setFace('overview');
     if (stationName) {
       const index = route.stops.findIndex(stop => stop.name === stationName);
       if (index >= 0) state.browseIndex = index;
@@ -222,8 +291,9 @@ async function selectRoute(routeId, stationName = null) {
     setActiveMode('overview');
     updateAppClasses();
     updateViewControls();
-    rebuildFocusScene({fit: true, animate: true});
+    rebuildFocusScene({fit: false});
     renderCards();
+    await experience.enterRoute(journeyFrame(0));
   } catch (error) {
     showToast(error.message);
   } finally {
@@ -231,27 +301,38 @@ async function selectRoute(routeId, stationName = null) {
   }
 }
 
-function clearSelection() {
-  ++state.loadingRouteToken;
+async function clearSelection() {
+  if (!state.route || state.returning) return;
+  const token = ++state.loadingRouteToken;
   ++state.stationCompletionToken;
+  state.returning = true;
+  elements.app.classList.add('returning');
   stopBroadcast(true);
+  stopJourneyMotion();
   practice.reset();
-  state.route = null;
   state.mode = 'overview';
+  elements.practicePanel.classList.remove('visible');
+  elements.reviewDrawer.classList.remove('visible');
+  elements.resultModal.classList.remove('visible');
+  setActiveMode('overview');
+  state.viewMode = 'flat';
+  realMapRenderer.hide();
+  updateAppClasses();
+  overviewRenderer.setFocused(false, null);
+  overviewRenderer.setView(overviewRenderer.homeView);
+  await experience.returnOverview(journeyFrame(0));
+  if (token !== state.loadingRouteToken) return;
+  state.route = null;
   state.browseIndex = 0;
   state.reverse = false;
   state.viewMode = 'flat';
   focusRenderer.clear();
   realMapRenderer.hide();
-  overviewRenderer.setFocused(false, null);
-  overviewRenderer.animateView(overviewRenderer.homeView, 420);
   elements.intro.classList.remove('hidden');
   elements.routeCard.classList.remove('visible');
   elements.stationCard.classList.remove('visible');
-  elements.practicePanel.classList.remove('visible');
-  elements.reviewDrawer.classList.remove('visible');
-  elements.resultModal.classList.remove('visible');
-  setActiveMode('overview');
+  state.returning = false;
+  elements.app.classList.remove('returning');
   updateAppClasses();
   updateViewControls();
 }
@@ -316,18 +397,32 @@ function stopJourneyMotion(ratio = 0, key = null) {
   state.journeyMotionLastAt = 0;
 }
 
-function journeyFrame(typingRatio) {
+function journeyFrame(typingRatio, overrides = {}) {
   const index = displayIndex();
   const originalIndex = originalIndexFromDisplay(index);
   const nextDisplay = index + 1 < state.route.stops.length ? index + 1 : null;
   const nextOriginal = nextDisplay == null ? null : originalIndexFromDisplay(nextDisplay);
+  const geometry = currentGeometry();
+  const startProgress = geometry.stationProgresses[originalIndex] ?? 0;
+  const nextProgress = nextOriginal == null ? startProgress : (geometry.stationProgresses[nextOriginal] ?? startProgress);
+  const ratio = clamp(Number(typingRatio) || 0, 0, 1);
   return {
+    network: state.networkType,
+    routeId: state.route.id,
+    route: state.route,
+    direction: state.reverse ? 'reverse' : 'forward',
+    currentDisplayIndex: index,
     currentOriginalIndex: originalIndex,
+    nextDisplayIndex: nextDisplay,
     nextOriginalIndex: nextOriginal,
     reverse: state.reverse,
-    typingRatio,
+    typingRatio: ratio,
+    routeProgress: lerp(startProgress, nextProgress, ratio),
     allLabels: state.allLabels,
-    journeyActive: state.mode === 'timed' || state.mode === 'full',
+    journeyActive: (state.mode === 'timed' || state.mode === 'full') && practice.running,
+    practiceMode: state.mode,
+    mapMode: state.viewMode,
+    ...overrides,
   };
 }
 
@@ -336,6 +431,7 @@ function renderJourneyFrame(typingRatio) {
   const frame = journeyFrame(typingRatio);
   focusRenderer.renderDynamic(frame);
   if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.renderDynamic(frame);
+  experience.updateJourney(frame);
 }
 
 function stepJourneyMotion(now) {
@@ -380,7 +476,7 @@ function renderDynamic() {
   if (elements.reviewDrawer.classList.contains('visible')) renderReviewPanel();
 }
 
-function setMode(mode) {
+async function setMode(mode) {
   if (mode === 'overview') {
     clearSelection();
     return;
@@ -397,8 +493,8 @@ function setMode(mode) {
   elements.practicePanel.classList.add('visible');
   setActiveMode(mode);
   updateAppClasses();
-  focusRenderer.fit(true, true);
   renderDynamic();
+  await experience.enterPractice(journeyFrame(0));
   elements.typingInput.value = '';
   setTimeout(() => elements.typingInput.focus(), 90);
 }
@@ -412,8 +508,8 @@ function exitPractice() {
   elements.practicePanel.classList.remove('visible');
   setActiveMode('overview');
   updateAppClasses();
+  experience.leavePractice(journeyFrame(0));
   if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.fitRoute();
-  else focusRenderer.fit(false, true);
   renderDynamic();
 }
 
@@ -495,7 +591,7 @@ async function handleTypingInput() {
   }
   elements.typingInput.value = result.value;
   feedback.className = 'typing-feedback';
-  feedback.textContent = `继续输入，${state.networkType === 'metro' ? '列车' : '车辆'}会平滑驶向下一站。`;
+  feedback.textContent = `继续输入，${product.movingNoun}会平滑驶向下一站。`;
   if (result.type === 'complete') {
     const completionToken = ++state.stationCompletionToken;
     feedback.className = 'typing-feedback ok';
@@ -503,6 +599,12 @@ async function handleTypingInput() {
     const station = practice.targetStation();
     audioPlayer.playStation(station).catch(() => {});
     await new Promise(resolve => setTimeout(resolve, 430));
+    if (completionToken !== state.stationCompletionToken || practice.finished) return;
+    const arrivedDisplayIndex = Math.min(practice.index + 1, state.route.stops.length - 1);
+    const arrivedOriginalIndex = originalIndexFromDisplay(arrivedDisplayIndex);
+    stopJourneyMotion(1, state.journeyMotionKey);
+    renderJourneyFrame(1);
+    await experience.arrive(journeyFrame(1, {arrivedOriginalIndex, forceCamera: true}));
     if (completionToken !== state.stationCompletionToken || practice.finished) return;
     const advanced = practice.advance();
     elements.typingInput.value = '';
@@ -522,6 +624,8 @@ function showResult(snapshot) {
   $('#resultCpm').textContent = snapshot.cpm;
   $('#resultAccuracy').textContent = `${Math.round(snapshot.accuracy * 100)}%`;
   elements.resultModal.classList.add('visible');
+  experience.leavePractice(journeyFrame(1));
+  if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.fitRoute();
 }
 
 async function startBroadcast() {
@@ -532,7 +636,7 @@ async function startBroadcast() {
     elements.practicePanel.classList.remove('visible');
     setActiveMode('overview');
     updateAppClasses();
-    focusRenderer.fit(false, true);
+    experience.leavePractice(journeyFrame(0));
   }
   state.broadcasting = true;
   const token = ++state.broadcastToken;
@@ -683,13 +787,17 @@ function randomRoute() {
 
 // Controls
 document.querySelectorAll('.mode-button').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
+elements.experienceSwitch.querySelectorAll('[data-experience]').forEach(button => button.addEventListener('click', () => {
+  if (!state.allowExperienceOverride) return;
+  setExperienceProfile(button.dataset.experience, {persist: true});
+}));
 $('#homeButton').addEventListener('click', clearSelection);
 $('#randomRouteButton').addEventListener('click', randomRoute);
 $('#previousDirectionButton').addEventListener('click', toggleReverse);
 $('#switchDirectionButton').addEventListener('click', switchActualDirection);
 $('#broadcastButton').addEventListener('click', () => state.broadcasting ? stopBroadcast() : startBroadcast());
 $('#speakButton').addEventListener('click', () => audioPlayer.playStation(currentStation()).catch(error => showToast(error.message)));
-$('#locateButton').addEventListener('click', () => focusRenderer.fit(state.mode === 'timed' || state.mode === 'full', true));
+$('#locateButton').addEventListener('click', () => fitCurrentExperience({animate: true}));
 $('#schematicToggle').addEventListener('change', event => { state.schematic = event.target.checked; rebuildFocusScene({fit: true, animate: true}); });
 $('#balancedToggle').addEventListener('change', event => { state.balanced = event.target.checked; rebuildFocusScene({fit: true, animate: true}); });
 $('#labelsToggle').addEventListener('change', event => { state.allLabels = event.target.checked; renderDynamic(); });
@@ -756,6 +864,10 @@ $('#resultHomeButton').addEventListener('click', clearSelection);
 // Pointer navigation
 elements.stage.addEventListener('pointerdown', event => {
   if (event.button !== 0 || state.viewMode === 'animated' || state.viewMode === 'real') return;
+  if (state.route) {
+    focusRenderer.beginManualNavigation();
+    experience.suspendForManualNavigation();
+  }
   state.dragging = true;
   state.moved = false;
   state.lastPointer = [event.clientX, event.clientY];
@@ -774,16 +886,25 @@ elements.stage.addEventListener('pointermove', event => {
 elements.stage.addEventListener('pointerup', event => {
   if (!state.dragging) return;
   state.dragging = false;
+  if (state.route) focusRenderer.endManualNavigation();
   document.body.classList.remove('is-panning');
   if (!state.moved && !state.route) {
     const route = overviewRenderer.nearestRoute(event.clientX, event.clientY);
     if (route) selectRoute(route.id);
   }
 });
-elements.stage.addEventListener('pointercancel', () => { state.dragging = false; document.body.classList.remove('is-panning'); });
+elements.stage.addEventListener('pointercancel', () => {
+  state.dragging = false;
+  focusRenderer.endManualNavigation();
+  document.body.classList.remove('is-panning');
+});
 elements.stage.addEventListener('wheel', event => {
   if (state.viewMode === 'animated' || state.viewMode === 'real') return;
   event.preventDefault();
+  if (state.route) {
+    focusRenderer.beginManualNavigation();
+    experience.suspendForManualNavigation();
+  }
   const factor = Math.exp(event.deltaY * .0012);
   if (state.route) focusRenderer.zoomAt(event.clientX, event.clientY, factor);
   else overviewRenderer.zoomAt(event.clientX, event.clientY, factor);
@@ -791,7 +912,7 @@ elements.stage.addEventListener('wheel', event => {
 
 window.addEventListener('resize', () => {
   overviewRenderer.resize();
-  if (state.route) focusRenderer.fit(state.mode === 'timed' || state.mode === 'full', false);
+  if (state.route) fitCurrentExperience({animate: false});
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
@@ -807,45 +928,57 @@ document.addEventListener('keydown', event => {
   }
 });
 
-function configureNetworkUi() {
-  const metro = state.networkType === 'metro';
-  document.title = metro ? '站粤地铁 · 深圳地铁拼音与粤语学习' : '站粤公交 · 深圳公交拼音与粤语学习';
+function configureProductUi() {
+  document.title = product.documentTitle;
+  elements.app.dataset.network = product.id;
   const brand = document.querySelector('.brand');
-  if (brand) brand.href = metro ? '/metro/learn' : '/bus/learn';
+  if (brand) {
+    brand.href = product.learnUrl;
+    brand.setAttribute('aria-label', `${product.title}首页`);
+  }
   const mark = document.querySelector('.brand-mark');
-  if (mark) mark.textContent = metro ? '轨' : '粤';
+  if (mark) mark.textContent = product.mark;
   const brandStrong = document.querySelector('.brand-copy strong');
-  if (brandStrong) brandStrong.textContent = metro ? '站粤地铁' : '站粤公交';
+  if (brandStrong) brandStrong.textContent = product.title;
   const brandSmall = document.querySelector('.brand-copy small');
-  if (brandSmall) brandSmall.textContent = metro ? 'Shenzhen Metro Typing' : 'Shenzhen Bus Typing';
+  if (brandSmall) brandSmall.textContent = product.subtitle;
   const mapLink = document.querySelector('.top-actions a.text-button');
   if (mapLink) {
-    mapLink.href = transitApi.endpoints.map;
-    mapLink.textContent = metro ? '地铁图' : '地理图';
+    mapLink.href = product.networkUrl;
+    mapLink.textContent = product.networkLinkLabel;
   }
   const introTitle = document.querySelector('#intro h1');
-  if (introTitle) introTitle.innerHTML = metro ? '沿着深圳地铁，<br>记住每一个站。' : '沿着一条公交线路，<br>记住深圳的每一个站。';
+  if (introTitle) introTitle.innerHTML = product.introTitle;
+  $('#introPill').textContent = product.introPill;
+  $('#introText').textContent = product.introText;
   const collectorLink = document.querySelector('.intro-actions .ghost-link');
-  if (collectorLink) collectorLink.href = transitApi.endpoints.collector;
-  const loadingStrong = elements.loading.querySelector('strong');
-  if (loadingStrong) loadingStrong.textContent = metro ? '正在读取地铁线网' : '正在读取公交线网';
+  if (collectorLink) collectorLink.href = product.collectorUrl;
+  $('#loadingTitle').textContent = product.loadingTitle;
+  $('#loadingText').textContent = product.loadingText;
+  $('#typingFeedback').textContent = product.feedback;
   const exportLink = document.querySelector('.drawer-export');
   if (exportLink) exportLink.href = transitApi.endpoints.languageExport;
-  elements.stage.setAttribute('aria-label', metro ? '深圳地铁线路学习地图' : '深圳公交线路学习地图');
-  elements.svg.setAttribute('aria-label', metro ? '当前地铁线路示意图' : '当前公交线路示意图');
-  elements.realMap.setAttribute('aria-label', metro ? '当前地铁线路真实地图' : '当前公交线路真实地图');
+  elements.stage.setAttribute('aria-label', product.mapLabel);
+  elements.svg.setAttribute('aria-label', product.focusMapLabel);
+  elements.realMap.setAttribute('aria-label', product.realMapLabel);
+  focusRenderer.setVehicleType(product.vehicle);
+  realMapRenderer.setVehicleType(product.vehicle);
+  updateExperienceControls();
 }
 
 async function init() {
-  configureNetworkUi();
+  configureProductUi();
   try {
-    const [overview, config] = await Promise.all([
+    const [overview, runtime] = await Promise.all([
       transitApi.overview(),
-      transitApi.publicConfig().catch(() => ({map_ready: false, admin_enabled: false})),
+      transitApi.runtime().catch(() => ({edition: 'unknown', amap: {map_ready: false}})),
     ]);
     state.overview = overview;
-    state.mapReady = Boolean(config.map_ready);
-    if (!config.admin_enabled) {
+    state.runtime = runtime;
+    state.mapReady = Boolean(runtime.amap?.map_ready);
+    state.allowExperienceOverride = userExperienceOverrideAllowed(runtime);
+    await setExperienceProfile(resolveExperienceProfile({network: state.networkType, runtime}), {reframe: false});
+    if (runtime.edition !== 'internal') {
       document.querySelectorAll('.admin-only, #reviewButton').forEach(node => { node.hidden = true; });
     }
     updateViewControls();
@@ -854,10 +987,11 @@ async function init() {
     $('#networkMeta').textContent = `${overview.stats.directions} 个方向 · ${overview.stats.station_clusters} 个站点簇 · Canvas 全网 / SVG 单线`;
     elements.loading.classList.add('hidden');
     const routeId = new URLSearchParams(window.location.search).get('route');
-    if (routeId) selectRoute(routeId);
+    if (routeId) await selectRoute(routeId);
   } catch (error) {
     elements.loading.innerHTML = `<strong>尚未生成${state.networkType === 'metro' ? '地铁' : '公交'}线网数据</strong><small>${escapeHtml(error.message)}<br><br><a href="${transitApi.endpoints.collector}" style="color:#fff">进入采集页面并构建全网 →</a></small>`;
   }
 }
 
+window.addEventListener('pagehide', () => experience.destroy(), {once: true});
 init();

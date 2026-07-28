@@ -16,7 +16,7 @@ from typing import Any, Deque, Dict
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from ..settings import PUBLIC_DIR
+from ..settings import PUBLIC_DIR, learn_experience_config
 
 
 ACCESS_TOKEN = os.getenv("TRANSIT_PUBLIC_ACCESS_TOKEN", "").strip()
@@ -168,6 +168,7 @@ def public_runtime(network_id: str) -> JSONResponse:
                 "serviceHost": AMAP_SERVICE_HOST,
                 "ready": bool(AMAP_JS_KEY and AMAP_SERVICE_HOST),
             },
+            "learnExperience": learn_experience_config(protected_geometry=True),
         }
     )
 

@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>深圳交通线路批量采集</title>
   <link rel="stylesheet" href="/static/css/internal.css">
+  <link rel="stylesheet" href="/static/css/navigation.css">
 </head>
 <body>
 <div class="app">
   <header class="topbar">
     <a class="brand" href="/"><div id="brandMark" class="brand-mark">深</div><div><strong id="brandTitle">深圳交通采集</strong><span id="brandSubtitle">高德线路批量缓存器</span></div></a>
-    <nav class="nav-links"><a href="/bus">公交全网</a><a href="/metro">地铁线网</a><a id="learnNav" href="/bus/learn">站名学习</a><a id="collectorNav" class="active" href="/bus/collector">数据采集</a><a href="/studio">示意工作台</a></nav>
+    <nav class="global-nav" data-global-nav aria-label="项目导航"></nav>
     <div id="topStatus" class="top-status">正在读取状态…</div>
   </header>
 
@@ -62,6 +63,7 @@
   </main>
 </div>
 <div id="toast" class="toast"></div>
+<script type="module" src="/static/js/navigation.js"></script>
 <script type="module" src="/static/js/collector.js"></script>
 </body>
 </html>

@@ -24,6 +24,35 @@ DIST_DIR = _configured_path("TRANSIT_DIST_DIR", PROJECT_ROOT / "dist")
 PUBLIC_DIR = _configured_path("TRANSIT_PUBLIC_DIR", DIST_DIR / "public")
 SHARED_VAR_DIR = VAR_DIR / "shared"
 LANGUAGE_PATH = SHARED_VAR_DIR / "language.json"
+LEARN_EXPERIENCE_PROFILES = ("standard", "immersive")
+
+
+def _boolean_environment(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _learn_profile(name: str, fallback: str) -> str:
+    value = os.getenv(name, "").strip().lower()
+    return value if value in LEARN_EXPERIENCE_PROFILES else fallback
+
+
+def learn_experience_config(*, protected_geometry: bool = False) -> dict:
+    """Return the shared, browser-visible Learn experience contract."""
+
+    payload = {
+        "profiles": list(LEARN_EXPERIENCE_PROFILES),
+        "defaults": {
+            "bus": _learn_profile("TRANSIT_LEARN_EXPERIENCE_BUS", "standard"),
+            "metro": _learn_profile("TRANSIT_LEARN_EXPERIENCE_METRO", "immersive"),
+        },
+        "allowUserOverride": _boolean_environment("TRANSIT_LEARN_ALLOW_EXPERIENCE_OVERRIDE", True),
+    }
+    if protected_geometry:
+        payload["protectedGeometry"] = True
+    return payload
 
 
 def browser_map_config(*, include_security_code: bool = False) -> dict:

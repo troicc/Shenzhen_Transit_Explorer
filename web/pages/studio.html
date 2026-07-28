@@ -4,11 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>地铁示意 · 校核工作台</title>
+  <link rel="stylesheet" href="/static/css/navigation.css" />
   <link rel="stylesheet" href="/static/css/studio.css" />
 </head>
 <body>
   <header id="topbar">
     <div class="brand">地铁示意 · 校核工作台</div>
+    <nav class="global-nav" data-global-nav aria-label="项目导航"></nav>
     <div class="stats" id="stats"></div>
     <div class="actions">
       <button id="fitBtn" title="适应窗口">⤢ 适应</button>
@@ -81,6 +83,7 @@
   </main>
 
   <div id="toast" class="toast"></div>
+  <script type="module" src="/static/js/navigation.js"></script>
   <script type="module" src="/static/js/studio.js"></script>
 </body>
 </html>

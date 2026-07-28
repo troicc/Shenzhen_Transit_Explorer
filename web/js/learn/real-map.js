@@ -106,9 +106,9 @@ function stationMarkerContent(stop, visualState, travelPhase, terminal) {
   return marker;
 }
 
-function vehicleContent() {
+function vehicleContent(type = 'bus') {
   const marker = document.createElement('div');
-  marker.className = 'real-map-vehicle';
+  marker.className = `real-map-vehicle ${type}`;
   marker.innerHTML = [
     '<div class="real-map-bus">',
     '<i class="real-map-wheel wheel-left"></i>',
@@ -143,7 +143,10 @@ export class RealMapFocusRenderer {
     this.cameraLastTime = 0;
     this.cameraPaused = false;
     this.lastFrame = null;
+    this.vehicleType = 'bus';
   }
+
+  setVehicleType(type) { this.vehicleType = type === 'metro' ? 'metro' : 'bus'; }
 
   async ensureMap() {
     if (this.map) return;
@@ -313,7 +316,7 @@ export class RealMapFocusRenderer {
       lineCap: 'round',
       zIndex: 55,
     });
-    this.vehicleElement = vehicleContent();
+    this.vehicleElement = vehicleContent(this.vehicleType);
     this.vehicleMarker = new this.AMap.Marker({
       position: this.path[0],
       content: this.vehicleElement,

@@ -10,7 +10,7 @@
     'accuracyStat','speedStat','progressStat','progressBar','spellingScheme','inlineHintToggle','exitPracticeButton',
     'searchInput','searchResults','loading','accessPanel','accessInput','accessButton','accessError','realMap',
     'flatViewButton','animatedViewButton','realViewButton','practiceFlatViewButton','practiceAnimatedViewButton',
-    'practiceRealViewButton'
+    'practiceRealViewButton','experienceSwitch'
   ].map(id => [id, document.getElementById(id)]));
 
   const viewport = new Z.ViewportController(elements.routeMap);
@@ -18,9 +18,17 @@
     manifest: null, line: null, reverse: false, displayIndex: 0, practice: false,
     answerLocked: false, tickTimer: 0, broadcast: false, searchTimer: 0, pendingMode: '',
     runtime: null, viewMode: 'flat', geographic: null, realRoute: null,
+    experienceProfile: Z.api.network === 'metro' ? 'immersive' : 'standard', returning: false,
   };
   const renderer = new Z.RouteRenderer(elements.routeMap, viewport, originalIndex => selectStationOriginal(originalIndex));
   const realMapRenderer = new Z.RealMapFocusRenderer({container: elements.realMap});
+  const experience = new Z.PublicLearnExperience({
+    app: elements.app,
+    renderer,
+    realMapRenderer,
+    network: Z.api.network,
+  });
+  viewport.setManualHandler(() => experience.suspendForManualNavigation());
 
   const practice = new Z.PracticeEngine(snapshot => {
     if (!elements.practicePanel || elements.practicePanel.classList.contains('hidden') || !snapshot.station) return;
@@ -53,7 +61,7 @@
       elements.progressBar.style.width = '100%';
       Z.showToast('全线练习完成');
     }
-    fitCurrentRoute(false);
+    experience.leavePractice();
   });
 
   function setAccessVisible(visible, message = '') {
@@ -80,19 +88,36 @@
     return state.reverse ? state.line.stations.length - 1 - state.displayIndex : state.displayIndex;
   }
 
-  function journeyFrame(displayIndex = state.displayIndex, fraction = 1) {
+  function journeyFrame(displayIndex = state.displayIndex, fraction = 1, overrides = {}) {
     if (!state.line) return null;
     const count = state.line.stations.length;
     const moving = state.practice && displayIndex > 0 && fraction < 1;
     const currentDisplay = moving ? displayIndex - 1 : displayIndex;
     const nextDisplay = moving ? displayIndex : null;
     const original = index => state.reverse ? count - 1 - index : index;
+    const currentOriginalIndex = original(currentDisplay);
+    const nextOriginalIndex = nextDisplay == null ? null : original(nextDisplay);
+    const startProgress = Number(state.line.stations[currentOriginalIndex]?.progress) || 0;
+    const nextProgress = nextOriginalIndex == null
+      ? startProgress
+      : Number(state.line.stations[nextOriginalIndex]?.progress ?? startProgress);
+    const typingRatio = moving ? Z.clamp(fraction, 0, 1) : 0;
     return {
-      currentOriginalIndex: original(currentDisplay),
-      nextOriginalIndex: nextDisplay == null ? null : original(nextDisplay),
+      network: state.manifest?.id || Z.api.network,
+      routeId: state.line.id,
+      route: state.line,
+      direction: state.reverse ? 'reverse' : 'forward',
+      currentDisplayIndex: currentDisplay,
+      currentOriginalIndex,
+      nextDisplayIndex: nextDisplay,
+      nextOriginalIndex,
       reverse: state.reverse,
-      typingRatio: moving ? Z.clamp(fraction, 0, 1) : 0,
+      typingRatio,
+      routeProgress: startProgress + (nextProgress - startProgress) * typingRatio,
       journeyActive: moving,
+      practiceMode: state.practice ? practice.mode : 'overview',
+      mapMode: state.viewMode,
+      ...overrides,
     };
   }
 
@@ -102,6 +127,7 @@
     if (frame && (state.viewMode === 'animated' || state.viewMode === 'real')) {
       realMapRenderer.renderDynamic(frame);
     }
+    if (frame) experience.updateJourney(frame);
   }
 
   function currentRenderFraction() {
@@ -111,7 +137,31 @@
 
   function fitCurrentRoute(practiceMode = state.practice) {
     if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.fitRoute();
-    else renderer.fit(practiceMode);
+    else if (state.experienceProfile === 'immersive') {
+      const frame = journeyFrame(state.displayIndex, currentRenderFraction());
+      renderer.fitImmersive(frame?.routeProgress || 0, {reverse: state.reverse, strong: practiceMode, practiceVisible: practiceMode});
+    } else renderer.fitFullRoute({practiceVisible: practiceMode});
+  }
+
+  function updateExperienceControls() {
+    if (!elements.experienceSwitch) return;
+    elements.experienceSwitch.hidden = state.runtime?.learnExperience?.allowUserOverride === false;
+    elements.experienceSwitch.querySelectorAll('[data-experience]').forEach(button => {
+      const active = button.dataset.experience === state.experienceProfile;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  async function setExperienceProfile(profile, {persist = false, reframe = true} = {}) {
+    state.experienceProfile = experience.setProfile(profile);
+    if (persist) Z.saveExperienceProfile(Z.api.network, state.experienceProfile);
+    updateExperienceControls();
+    if (!state.line || !reframe) return;
+    const frame = journeyFrame(state.displayIndex, currentRenderFraction());
+    if (state.practice) await experience.enterPractice(frame);
+    else await experience.enterRoute(frame);
+    if (state.practice) elements.typingInput?.focus?.({preventScroll: true});
   }
 
   function updateViewButtons() {
@@ -140,6 +190,7 @@
       renderJourney(state.displayIndex, currentRenderFraction());
       return;
     }
+    experience.suspendForManualNavigation();
     if (!state.runtime?.amap?.ready || !state.line.availableModes?.includes(mode)) {
       Z.showToast('当前部署尚未配置真实地图能力');
       return;
@@ -175,6 +226,8 @@
   function renderManifest(manifest) {
     state.manifest = manifest;
     const metro = manifest.id === 'metro';
+    elements.app.dataset.network = manifest.id;
+    realMapRenderer.setVehicleType(metro ? 'metro' : 'bus');
     document.title = `站粤 · ${manifest.name}`;
     elements.overviewImage.src = `/assets/${manifest.id}/network-overview.png?v=${encodeURIComponent(manifest.buildId || '')}`;
     elements.overviewImage.alt = `${manifest.name}公开派生概览`;
@@ -226,6 +279,7 @@
     try {
       const [runtime, manifest] = await Promise.all([Z.api.runtime(), Z.api.manifest()]);
       state.runtime = runtime;
+      await setExperienceProfile(Z.resolveExperienceProfile(Z.api.network, runtime), {reframe: false});
       renderManifest(manifest);
       updateViewButtons();
       setAccessVisible(false);
@@ -292,6 +346,7 @@
       updateViewButtons();
       setModeActive('overview');
       if (stationName) renderer.locate(currentOriginalIndex());
+      await experience.enterRoute(journeyFrame(state.displayIndex, 1));
       const requestedMode = startMode || state.pendingMode;
       state.pendingMode = '';
       if (requestedMode) startPractice(requestedMode);
@@ -303,9 +358,16 @@
     }
   }
 
-  function home() {
+  async function home() {
+    if (state.returning) return;
+    state.returning = true;
     stopBroadcast();
     stopPractice();
+    if (state.line) {
+      state.viewMode = 'flat';
+      elements.app.classList.remove('map-view', 'animated-map', 'realistic-map');
+      await experience.returnOverview();
+    }
     state.line = null;
     state.reverse = false;
     state.displayIndex = 0;
@@ -325,6 +387,7 @@
     elements.lineStrip.classList.remove('hidden');
     elements.lineStrip.querySelectorAll('button').forEach(node => node.classList.remove('active'));
     setModeActive('overview');
+    state.returning = false;
   }
 
   function selectStationOriginal(originalIndex) {
@@ -407,8 +470,8 @@
     elements.practicePrompt.textContent = elements.spellingScheme.value === 'initials' ? '输入每个音节的首字母' : '输入普通话拼音（无需声调）';
     elements.progressBar.style.width = '0%';
     setModeActive(mode);
-    fitCurrentRoute(true);
     practice.start(displayStations(), {mode, duration: 30, scheme: elements.spellingScheme.value});
+    experience.enterPractice(journeyFrame(practice.index, 0));
     clearInterval(state.tickTimer);
     state.tickTimer = setInterval(() => practice.tick(), 250);
     elements.typingInput.focus();
@@ -440,7 +503,7 @@
       elements.routeDock.classList.remove('hidden');
       elements.lineStrip.classList.remove('hidden');
       state.displayIndex = Z.clamp(state.displayIndex, 0, state.line.stations.length - 1);
-      fitCurrentRoute(false);
+      experience.leavePractice();
       renderJourney(state.displayIndex, 1);
       updateLineAndStation();
       setModeActive('overview');
@@ -522,6 +585,9 @@
   elements.practiceFlatViewButton.addEventListener('click', () => setViewMode('flat'));
   elements.practiceAnimatedViewButton.addEventListener('click', () => setViewMode('animated'));
   elements.practiceRealViewButton.addEventListener('click', () => setViewMode('real'));
+  elements.experienceSwitch?.querySelectorAll('[data-experience]').forEach(button => {
+    button.addEventListener('click', () => setExperienceProfile(button.dataset.experience, {persist: true}));
+  });
 
   elements.spellingScheme.addEventListener('change', event => {
     practice.setScheme(event.target.value);
@@ -544,7 +610,9 @@
       state.answerLocked = true;
       elements.feedback.textContent = '正确，到站。';
       elements.feedback.className = 'feedback ok';
-      setTimeout(() => {
+      setTimeout(async () => {
+        const arrivedFrame = journeyFrame(practice.index, 1);
+        await experience.arrive({...arrivedFrame, arrivedOriginalIndex: arrivedFrame?.currentOriginalIndex});
         if (practice.advance()) {
           state.answerLocked = false;
           elements.typingInput.value = '';

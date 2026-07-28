@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -115,8 +116,24 @@ class InternalApiContractTests(unittest.TestCase):
         runtime = self.client.get("/api/runtime").json()
         self.assertEqual(runtime["edition"], "internal")
         self.assertEqual(runtime["networks"], ["bus", "metro"])
+        self.assertEqual(runtime["learnExperience"]["profiles"], ["standard", "immersive"])
+        self.assertIn(runtime["learnExperience"]["defaults"]["bus"], runtime["learnExperience"]["profiles"])
+        self.assertIn(runtime["learnExperience"]["defaults"]["metro"], runtime["learnExperience"]["profiles"])
         for path in ("/collector", "/learn", "/api/network/overview", "/api/metro/schematic"):
             self.assertEqual(self.client.get(path).status_code, 404, path)
+
+    def test_runtime_validates_learn_experience_environment(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "TRANSIT_LEARN_EXPERIENCE_BUS": "immersive",
+                "TRANSIT_LEARN_EXPERIENCE_METRO": "invalid",
+                "TRANSIT_LEARN_ALLOW_EXPERIENCE_OVERRIDE": "false",
+            },
+        ):
+            learn = self.client.get("/api/runtime").json()["learnExperience"]
+        self.assertEqual(learn["defaults"], {"bus": "immersive", "metro": "immersive"})
+        self.assertFalse(learn["allowUserOverride"])
 
 
 if __name__ == "__main__":
