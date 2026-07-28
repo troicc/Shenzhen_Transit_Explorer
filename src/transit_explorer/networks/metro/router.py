@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 from datetime import datetime, timezone
@@ -13,10 +12,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ...common.network import create_network_router
-from ...features.schematic import build_schematic_network
 from ...settings import WEB_DIR
 from .builder import build
-from .config import DB_PATH, LAYOUT_PATH, NETWORK_PATH, OFFICIAL_PATH
+from .config import DB_PATH, NETWORK_PATH, OFFICIAL_PATH
 from .db import (
     choose_candidate,
     get_queue,
@@ -29,6 +27,7 @@ from .db import (
     store_query_result,
 )
 from .official import sync
+from .presentation import presentation_repository
 from .service import service
 
 
@@ -186,36 +185,22 @@ def build_network() -> Dict[str, Any]:
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     service.cache.clear()
+    service.invalidate_presentation()
     return {"ok": True, "result": result, "view_url": "/metro", "learn_url": "/metro/learn"}
 
 
 def _schematic_view(network: Dict[str, Any]) -> Dict[str, Any]:
-    if "transfer_anchors" not in network:
-        network = {**network, "routes": [dict(route) for route in network.get("routes", [])]}
-        build_schematic_network(network)
-    layout: Dict[str, Any] = {}
-    if LAYOUT_PATH.is_file():
-        try:
-            layout = json.loads(LAYOUT_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            layout = {}
-    layout_lines = layout.get("lines", {})
-    layout_anchors = layout.get("anchors", {})
+    presentation = presentation_repository.get_network(network)
     routes = []
-    for route in network.get("routes", []):
+    for route in presentation.get("routes", []):
         if route.get("direction") != "forward":
             continue
         schematic = route.get("schematic") or {}
-        override = layout_lines.get(route["id"])
-        if override:
-            schematic = {
-                **schematic,
-                "path": override.get("path", schematic.get("path")),
-                "station_progress": override.get("station_progress", schematic.get("station_progress")),
-            }
+        focus = (route.get("geometry") or {}).get("focus") or {}
         routes.append(
             {
                 "id": route["id"],
+                "layout_key": focus.get("logicalLineId") or route.get("short_name"),
                 "route_no": route.get("route_no"),
                 "short_name": route.get("short_name"),
                 "color": route.get("color"),
@@ -236,21 +221,23 @@ def _schematic_view(network: Dict[str, Any]) -> Dict[str, Any]:
                 "schematic": schematic,
             }
         )
-    anchors = {}
-    for key, anchor in (network.get("transfer_anchors") or {}).items():
-        override = layout_anchors.get(key)
-        anchors[key] = {
+    anchors = {
+        key: {
             "name": anchor.get("name"),
-            "x": override["x"] if override else anchor.get("x"),
-            "y": override["y"] if override else anchor.get("y"),
+            "x": anchor.get("x"),
+            "y": anchor.get("y"),
             "lines": anchor.get("lines", []),
         }
+        for key, anchor in (presentation.get("transfer_anchors") or {}).items()
+    }
+    layout = presentation.get("presentation_layout") or {}
     return {
-        "world": network.get("world"),
-        "alpha": layout.get("alpha", network.get("schematic_alpha", 0.55)),
+        "world": presentation.get("world"),
+        "revision": presentation.get("presentation_revision"),
+        "alpha": layout.get("alpha", presentation.get("schematic_alpha", 0.55)),
         "transfer_anchors": anchors,
         "routes": routes,
-        "has_layout": bool(layout),
+        "has_layout": bool(layout.get("applied")),
     }
 
 
@@ -259,19 +246,35 @@ def studio_data() -> Dict[str, Any]:
     return _schematic_view(service.require_network())
 
 
+@router.get("/api/metro/presentation")
+def presentation_data() -> Dict[str, Any]:
+    return service.presentation()
+
+
+@router.get("/api/metro/presentation/revision")
+def presentation_revision() -> Dict[str, Any]:
+    return service.presentation_revision()
+
+
 @router.post("/api/metro/studio")
 def save_studio(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
-    data = {
-        "alpha": payload.get("alpha"),
-        "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "lines": payload.get("lines", {}),
-        "anchors": payload.get("anchors", {}),
+    network = service.require_network()
+    try:
+        data = presentation_repository.normalize_layout(payload, network)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    presentation_repository.save_layout(data)
+    service.invalidate_presentation()
+    revision = presentation_repository.revision(network)
+    return {
+        "ok": True,
+        "revision": revision,
+        "lines": len(data["lines"]),
+        "anchors": len(data["anchors"]),
+        "learnUrl": "/metro/learn?layoutRevision={}".format(revision),
+        "message": "已保存并应用到地铁练习",
     }
-    LAYOUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary = LAYOUT_PATH.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    temporary.replace(LAYOUT_PATH)
-    return {"ok": True, "path": str(LAYOUT_PATH), "lines": len(data["lines"]), "anchors": len(data["anchors"])}
 
 
 router.include_router(create_network_router(service))

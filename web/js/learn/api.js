@@ -19,6 +19,8 @@ export const networkType = pathNetwork || (requestedNetwork === 'metro' ? 'metro
 const base = `/api/${networkType}`;
 const endpoints = {
   overview: `${base}/network/overview`,
+  presentation: `${base}/presentation`,
+  presentationRevision: `${base}/presentation/revision`,
   route: id => `${base}/learn/routes/${encodeURIComponent(id)}`,
   search: (query, limit) => `${base}/search?q=${encodeURIComponent(query)}&limit=${limit}`,
   language: `${base}/learn/language`,
@@ -39,6 +41,14 @@ export const transitApi = {
   },
   overview() {
     return request(endpoints.overview);
+  },
+  presentation() {
+    if (networkType !== 'metro') return Promise.resolve(null);
+    return request(endpoints.presentation);
+  },
+  presentationRevision() {
+    if (networkType !== 'metro') return Promise.resolve(null);
+    return request(endpoints.presentationRevision);
   },
   route(routeId) {
     return request(endpoints.route(routeId));

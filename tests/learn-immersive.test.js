@@ -3,9 +3,16 @@ import assert from 'node:assert/strict';
 
 import {LearnExperience} from '../web/js/learn/experience.js';
 
-function fixture(profile = 'immersive') {
+function fixture(profile = 'metroFinal') {
   const events = [];
-  const appElement = {dataset: {}};
+  const classes = new Set();
+  const appElement = {
+    dataset: {},
+    classList: {
+      add: (...values) => values.forEach(value => classes.add(value)),
+      remove: (...values) => values.forEach(value => classes.delete(value)),
+    },
+  };
   const flipScene = {dataset: {face: 'overview'}};
   const focusRenderer = {
     geometry: {path: [[0, 0], [1, 1]]},
@@ -39,10 +46,10 @@ const frame = {
   arrivedOriginalIndex: 4,
 };
 
-test('immersive route entry flips to the route face and uses immersive fit', async () => {
+test('Metro Final route entry flips to the route face and uses immersive fit', async () => {
   const {experience, events, appElement, flipScene} = fixture();
   await experience.enterRoute(frame);
-  assert.equal(appElement.dataset.experience, 'immersive');
+  assert.equal(appElement.dataset.experience, 'metroFinal');
   assert.equal(flipScene.dataset.face, 'route');
   assert.deepEqual(events[0], ['immersive-fit', true]);
   experience.destroy();
@@ -66,8 +73,19 @@ test('switching profile only replaces the controller and keeps caller journey st
   experience.setProfile('immersive');
   await experience.enterPractice({...frame, direction: journeyState.direction});
   assert.deepEqual(journeyState, {routeId: 'M1', direction: 'reverse', currentDisplayIndex: 6, input: 'sha'});
-  assert.equal(appElement.dataset.experience, 'immersive');
+  assert.equal(appElement.dataset.experience, 'metroFinal');
   assert.equal(events.some(event => event[0] === 'immersive-fit'), true);
+  experience.destroy();
+});
+
+test('full-line completion rebounds to the whole route without returning to overview', async () => {
+  const {experience, events, appElement, flipScene} = fixture();
+  await experience.enterRoute(frame);
+  events.length = 0;
+  await experience.completeLine(frame);
+  assert.equal(appElement.dataset.lineState, 'completed');
+  assert.equal(flipScene.dataset.face, 'route');
+  assert.deepEqual(events.map(event => event[0]), ['full-fit']);
   experience.destroy();
 });
 

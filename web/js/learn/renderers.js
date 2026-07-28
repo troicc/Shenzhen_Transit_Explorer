@@ -219,6 +219,7 @@ export class FocusRenderer {
     this.stage = stage;
     this.onStationClick = onStationClick;
     this.route = null;
+    this.sourceGeometry = null;
     this.geometry = null;
     this.color = '#5cc8ff';
     this.stationNodes = [];
@@ -227,12 +228,14 @@ export class FocusRenderer {
     this.viewAnimationToken = 0;
     this.lastDynamic = null;
     this.lastFollowKey = null;
+    this.vehicleScale = 1;
     this.vehicleFacingNode = train.querySelector('.vehicle-facing');
   }
 
   clear() {
     this.cancelViewAnimation();
     this.route = null;
+    this.sourceGeometry = null;
     this.geometry = null;
     this.routeLayer.innerHTML = '';
     this.stationLayer.innerHTML = '';
@@ -246,7 +249,15 @@ export class FocusRenderer {
   setRoute(route, geometry, color) {
     this.cancelViewAnimation();
     this.route = route;
-    this.geometry = geometry;
+    this.sourceGeometry = {
+      ...geometry,
+      path: geometry.path.map(point => [...point]),
+      stationPoints: geometry.stationPoints.map(point => [...point]),
+      stationProgresses: [...geometry.stationProgresses],
+      bbox: [...geometry.bbox],
+    };
+    this.geometry = this.sourceGeometry;
+    this.vehicleScale = 1;
     this.color = color;
     document.documentElement.style.setProperty('--route', color);
     this.routeLayer.innerHTML = '';
@@ -263,6 +274,8 @@ export class FocusRenderer {
     this.routeLayer.append(base, main, progress, hit);
     this.mainPath = main;
     this.progressPath = progress;
+    this.basePath = base;
+    this.hitPath = hit;
 
     this.stationNodes = route.stops.map((stop, index) => {
       const point = geometry.stationPoints[index];
@@ -274,6 +287,26 @@ export class FocusRenderer {
       return {group, circle};
     });
 
+  }
+
+  setDisplayGeometry(geometry, {vehicleScale = 1} = {}) {
+    if (!this.route || !geometry) return false;
+    this.geometry = geometry;
+    this.vehicleScale = Number.isFinite(Number(vehicleScale)) ? Number(vehicleScale) : 1;
+    const data = pathD(geometry.path);
+    [this.basePath, this.mainPath, this.hitPath].forEach(path => path?.setAttribute('d', data));
+    this.stationNodes.forEach((item, index) => {
+      const point = geometry.stationPoints[index];
+      if (!point) return;
+      item.circle.setAttribute('cx', point[0]);
+      item.circle.setAttribute('cy', point[1]);
+    });
+    if (this.lastDynamic) this.renderDynamic(this.lastDynamic);
+    return true;
+  }
+
+  resetDisplayGeometry() {
+    return this.sourceGeometry ? this.setDisplayGeometry(this.sourceGeometry, {vehicleScale: 1}) : false;
   }
 
   setVehicleType(type) {
@@ -307,24 +340,29 @@ export class FocusRenderer {
     return this.fitFullRoute({practiceVisible, animate});
   }
 
-  fitFullRoute({practiceVisible = false, animate = true, duration = 430} = {}) {
-    if (!this.geometry) return;
+  fullRouteView({practiceVisible = false, geometry = this.geometry} = {}) {
+    if (!geometry) return null;
     const rectangle = this.stage.getBoundingClientRect();
-    const target = computeFocusView(
-      this.geometry.bbox,
+    return computeFocusView(
+      geometry.bbox,
       rectangle.width,
       rectangle.height,
       practiceVisible,
       this.bottomInset(practiceVisible),
     );
-    return this.setView(target, {animate, duration, commit: true});
   }
 
-  fitImmersive(progress, {reverse = false, strong = false, practiceVisible = false, animate = true, duration = 620} = {}) {
-    if (!this.geometry) return Promise.resolve(false);
+  fitFullRoute({practiceVisible = false, animate = true, duration = 430, geometry = this.geometry, easing} = {}) {
+    const target = this.fullRouteView({practiceVisible, geometry});
+    if (!target) return Promise.resolve(false);
+    return this.setView(target, {animate, duration, commit: true, easing});
+  }
+
+  immersiveView(progress, {reverse = false, strong = false, practiceVisible = false, geometry = this.geometry} = {}) {
+    if (!geometry) return null;
     const rectangle = this.stage.getBoundingClientRect();
     const full = computeFocusView(
-      this.geometry.bbox,
+      geometry.bbox,
       rectangle.width,
       rectangle.height,
       practiceVisible,
@@ -333,14 +371,23 @@ export class FocusRenderer {
     const factor = immersiveScaleFactor(this.route?.stops?.length || 2, strong);
     const width = Math.max(100, full.w * factor);
     const height = width * rectangle.height / Math.max(1, rectangle.width);
-    const point = this.pointAtProgress(progress) || [full.x + full.w / 2, full.y + full.h / 2];
-    const ahead = this.pointAhead(progress, reverse) || point;
+    const point = pointAtProgress(geometry.path, clamp(progress, 0, 1)) || [full.x + full.w / 2, full.y + full.h / 2];
+    const count = this.route?.stops?.length || 2;
+    const step = 1 / Math.max(18, (count - 1) * 1.45);
+    const ahead = pointAtProgress(geometry.path, clamp(progress + (reverse ? -step : step), 0, 1)) || point;
     const centerX = lerp(point[0], ahead[0], .27);
     const centerY = lerp(point[1], ahead[1], .27);
-    return this.setView({x: centerX - width * .48, y: centerY - height * .42, w: width, h: height}, {
+    return {x: centerX - width * .48, y: centerY - height * .42, w: width, h: height};
+  }
+
+  fitImmersive(progress, {reverse = false, strong = false, practiceVisible = false, animate = true, duration = 620, geometry = this.geometry, easing} = {}) {
+    const target = this.immersiveView(progress, {reverse, strong, practiceVisible, geometry});
+    if (!target) return Promise.resolve(false);
+    return this.setView(target, {
       animate,
       duration,
       commit: true,
+      easing,
     });
   }
 
@@ -361,7 +408,7 @@ export class FocusRenderer {
 
   setView(target, options = {}) {
     const normalized = typeof options === 'boolean' ? {animate: options} : options;
-    const {animate = false, duration = 430} = normalized;
+    const {animate = false, duration = 430, easing = easeOutCubic} = normalized;
     this.cancelViewAnimation();
     const token = this.viewAnimationToken;
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -376,7 +423,7 @@ export class FocusRenderer {
       const step = now => {
         if (token !== this.viewAnimationToken) { resolve(false); return; }
         const ratio = clamp((now - startedAt) / duration, 0, 1);
-        const eased = easeOutCubic(ratio);
+        const eased = easing(ratio);
         this.view = {
           x: lerp(start.x, target.x, eased), y: lerp(start.y, target.y, eased),
           w: lerp(start.w, target.w, eased), h: lerp(start.h, target.h, eased),
@@ -474,7 +521,7 @@ export class FocusRenderer {
     this.progressPath.setAttribute('d', pathD(traveledPath));
 
     const point = pointAtProgress(this.geometry.path, actualProgress);
-    this.train.setAttribute('transform', `translate(${point[0]} ${point[1]}) scale(${unitPerPixel})`);
+    this.train.setAttribute('transform', `translate(${point[0]} ${point[1]}) scale(${unitPerPixel * this.vehicleScale})`);
     this.vehicleFacingNode?.removeAttribute('transform');
     this.train.setAttribute('opacity', '1');
 
@@ -502,6 +549,34 @@ export class FocusRenderer {
       text.textContent = item.stop.name;
       this.labelLayer.append(text);
     });
+
+    if (this.effectLayer) {
+      this.effectLayer.querySelectorAll('.current-station-beacon').forEach(node => node.remove());
+      const targetIndex = journeyActive && nextOriginalIndex != null ? nextOriginalIndex : currentOriginalIndex;
+      const target = this.geometry.stationPoints[targetIndex];
+      const stop = this.route.stops[targetIndex];
+      if (target && stop) {
+        const group = svgEl('g', {
+          class: 'current-station-beacon',
+          'data-target-index': targetIndex,
+          'data-target-role': journeyActive ? 'next-station' : 'current-station',
+        });
+        group.append(
+          svgEl('circle', {class: 'current-target-ring secondary', cx: target[0], cy: target[1], r: 14 * unitPerPixel}),
+          svgEl('circle', {class: 'current-target-ring', cx: target[0], cy: target[1], r: 9 * unitPerPixel}),
+          svgEl('circle', {class: 'current-target-dot', cx: target[0], cy: target[1], r: 3.3 * unitPerPixel}),
+        );
+        const targetLabel = svgEl('text', {
+          class: 'current-target-label',
+          x: target[0] + 12 * unitPerPixel,
+          y: target[1] - 12 * unitPerPixel,
+          'font-size': 11 * unitPerPixel,
+        });
+        targetLabel.textContent = journeyActive ? `下一站 · ${stop.name}` : stop.name;
+        group.append(targetLabel);
+        this.effectLayer.append(group);
+      }
+    }
 
     const currentNode = this.stationNodes[currentOriginalIndex]?.group;
     if (currentNode && !currentNode.querySelector('.station-ring')) {

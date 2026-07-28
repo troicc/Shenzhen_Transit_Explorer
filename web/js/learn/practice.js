@@ -1,9 +1,10 @@
 import {normalizePinyin} from './core.js?v=3';
 
 export class PracticeEngine {
-  constructor({onChange = () => {}, onFinish = () => {}} = {}) {
+  constructor({onChange = () => {}, onFinish = () => {}, targetForStation = station => station?.pinyin || ''} = {}) {
     this.onChange = onChange;
     this.onFinish = onFinish;
+    this.targetForStation = targetForStation;
     this.timer = null;
     this.reset();
   }
@@ -46,8 +47,23 @@ export class PracticeEngine {
     return this.nextStation();
   }
 
+  targetDisplay() {
+    return String(this.targetForStation?.(this.targetStation()) || '').trim();
+  }
+
   target() {
-    return normalizePinyin(this.targetStation()?.pinyin);
+    return normalizePinyin(this.targetDisplay());
+  }
+
+  setTargetResolver(resolver) {
+    if (typeof resolver !== 'function') return false;
+    this.targetForStation = resolver;
+    if (!this.locked) {
+      this.value = '';
+      this.lastValid = '';
+    }
+    this.emit();
+    return true;
   }
 
   startClockIfNeeded() {
@@ -145,6 +161,7 @@ export class PracticeEngine {
       index: this.index,
       value: this.value,
       target: this.target(),
+      targetDisplay: this.targetDisplay(),
       currentStation: this.currentStation(),
       nextStation: this.nextStation(),
       targetStation: this.targetStation(),

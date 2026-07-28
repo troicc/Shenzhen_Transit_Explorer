@@ -36,7 +36,9 @@ const state = {
   dragging: null,
   undo: [],
   redo: [],
+  revision: null,
 };
+const layoutChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('transit.metro.layout');
 
 const lineEls = {};     // id -> {group, casing, line, hit}
 const stationEls = {};  // id -> [circle, ...]
@@ -585,31 +587,61 @@ for (const [key, elId] of Object.entries(layerMap)) {
   });
 }
 
-$('#saveBtn').addEventListener('click', async () => {
+function studioPayload() {
   const payload = {
     alpha: state.alpha,
     lines: {},
     anchors: {},
   };
   for (const line of state.lines) {
-    payload.lines[line.id] = {
+    payload.lines[line.layout_key || line.id] = {
       path: line.schematic.path,
       station_progress: line.schematic.station_progress,
     };
   }
   for (const [key, a] of Object.entries(state.anchors)) payload.anchors[key] = { x: a.x, y: a.y };
+  return payload;
+}
+
+async function saveStudio({preview = false, previewWindow = null} = {}) {
+  const buttons = [$('#saveBtn'), $('#previewBtn')];
+  buttons.forEach(button => { button.disabled = true; });
   try {
     const res = await fetch('/api/metro/studio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(studioPayload()),
     });
-    const data = await res.json();
-    if (data.ok) showToast(`已保存：${data.lines} 线 / ${data.anchors} 锚点`);
-    else throw new Error('保存失败');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.detail || '保存失败');
+    state.revision = data.revision;
+    layoutChannel?.postMessage({type: 'metro-layout-saved', revision: data.revision});
+    showToast(`${data.message} · ${data.lines} 线 / ${data.anchors} 锚点`);
+    if (preview) {
+      const route = state.selected?.id || state.lines[0]?.id;
+      const separator = data.learnUrl.includes('?') ? '&' : '?';
+      const target = `${data.learnUrl}${route ? `${separator}route=${encodeURIComponent(route)}` : ''}`;
+      if (previewWindow) previewWindow.location.replace(target);
+      else window.location.assign(target);
+    }
+    return data;
   } catch (err) {
+    previewWindow?.close();
     showToast('保存失败：' + err.message);
+    throw err;
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
   }
+}
+
+$('#saveBtn').addEventListener('click', () => {
+  saveStudio().catch(() => {});
+});
+
+$('#previewBtn').addEventListener('click', () => {
+  const previewWindow = window.open('about:blank', '_blank');
+  if (previewWindow) previewWindow.opener = null;
+  saveStudio({preview: true, previewWindow}).catch(() => {});
 });
 
 $('#exportBtn').addEventListener('click', () => {
@@ -665,6 +697,7 @@ async function load() {
     state.lines = data.routes.map((r) => ({ ...r, visible: true }));
     state.anchors = data.transfer_anchors || {};
     state.alpha = data.alpha ?? 0.55;
+    state.revision = data.revision || null;
     $('#alphaSlider').value = state.alpha;
     $('#alphaVal').textContent = state.alpha.toFixed(2);
     buildAnchorLinks();
@@ -677,4 +710,5 @@ async function load() {
   }
 }
 
+window.addEventListener('pagehide', () => layoutChannel?.close(), {once: true});
 load();

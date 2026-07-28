@@ -126,7 +126,10 @@ class PublicPipelineTests(unittest.TestCase):
                     public_runtime = client.get("/api/bus/runtime").json()
                     self.assertEqual(public_runtime["edition"], "public")
                     self.assertTrue(public_runtime["learnExperience"]["protectedGeometry"])
-                    self.assertEqual(public_runtime["learnExperience"]["defaults"]["metro"], "immersive")
+                    self.assertEqual(public_runtime["learnExperience"]["defaults"]["metro"], "metroFinal")
+                    self.assertFalse(
+                        public_runtime["learnExperience"]["presets"]["metroFinal"]["routeStretch"]
+                    )
                     self.assertEqual(client.get("/api/metro/manifest").status_code, 200)
                     response = client.get("/api/bus/lines/bus-bus-source/scene")
                     self.assertEqual(response.status_code, 200)

@@ -45,7 +45,6 @@ body.is-panning *{transition:none!important}.app.focused #networkCanvas{opacity:
 .route-card,.station-card{top:118px}.intro-pill b{font-weight:600}
 
 .learn-flip-scene,.learn-flip-card,.learn-face{position:absolute;inset:0;width:100%;height:100%}.learn-flip-scene{z-index:0}.learn-flip-card{transform-style:preserve-3d}.learn-face{overflow:hidden}.learn-face-route{opacity:0;pointer-events:none}.learn-flip-scene[data-face="route"] .learn-face-overview{opacity:0;pointer-events:none}.learn-flip-scene[data-face="route"] .learn-face-route{opacity:1;pointer-events:auto}
-.app[data-experience="immersive"] .learn-flip-scene{perspective:1800px}.app[data-experience="immersive"] .learn-flip-card{transition:transform 760ms cubic-bezier(.22,.72,.18,1);will-change:transform}.app[data-experience="immersive"] .learn-face{backface-visibility:hidden;-webkit-backface-visibility:hidden;transform-style:preserve-3d;transition:none}.app[data-experience="immersive"] .learn-face-overview{transform:rotateY(0deg);opacity:1;pointer-events:auto}.app[data-experience="immersive"] .learn-face-route{transform:rotateY(180deg);opacity:1;pointer-events:none}.app[data-experience="immersive"] .learn-flip-scene[data-face="route"] .learn-flip-card{transform:rotateY(180deg)}.app[data-experience="immersive"] .learn-flip-scene[data-face="route"] .learn-face-overview{opacity:1}.app[data-experience="immersive"] .learn-flip-scene[data-face="route"] .learn-face-route{pointer-events:auto}
 
 .arrival-pulse-group{pointer-events:none}.arrival-pulse,.arrival-flash{transform-box:fill-box;transform-origin:center;vector-effect:non-scaling-stroke}.arrival-pulse{fill:none;stroke:var(--route)}.arrival-pulse.outer{stroke-width:3;animation:arrivalPulseOuter 1.1s ease-out forwards}.arrival-pulse.inner{stroke:#fff;stroke-width:2;animation:arrivalPulseInner .78s .08s ease-out forwards}.arrival-flash{fill:#fff;animation:arrivalFlash .5s ease-out forwards}@keyframes arrivalPulseOuter{0%{opacity:.95;transform:scale(.45)}100%{opacity:0;transform:scale(4.2)}}@keyframes arrivalPulseInner{0%{opacity:.9;transform:scale(.5)}100%{opacity:0;transform:scale(2.7)}}@keyframes arrivalFlash{0%{opacity:1;transform:scale(.6)}100%{opacity:0;transform:scale(1.8)}}
 
@@ -59,4 +58,78 @@ body.is-panning *{transition:none!important}.app.focused #networkCanvas{opacity:
 
 @media(max-width:1100px){.topbar{grid-template-columns:auto minmax(0,1fr) auto}.topbar .global-nav{justify-self:stretch}.brand-copy small{display:none}.top-actions .text-button{display:none}.learn-controls{top:68px}.route-card,.station-card{top:116px}}
 @media(max-width:760px){.topbar{left:9px;right:9px;top:8px;grid-template-columns:auto minmax(0,1fr) auto;gap:7px}.topbar .global-nav{position:absolute;left:0;right:0;top:48px}.top-actions{gap:5px}.top-actions #reviewButton{display:none}.search-shell input{width:92px}.learn-controls{top:96px;width:calc(100% - 18px);justify-content:center}.learn-controls .mode-switch{position:static;display:flex}.route-card{top:139px}.station-card{bottom:69px}.intro{top:53%}.app.practice .topbar .global-nav{top:0}.app.practice .practice-toolbar{top:54px}.app.practice .learn-controls{right:9px;top:99px;width:auto}.app.practice .learn-controls .mode-switch{display:none}.app.practice .topbar .brand,.app.practice .topbar .top-actions{display:none}}
-@media(prefers-reduced-motion:reduce){.app[data-experience="immersive"] .learn-flip-card{transition:none}.arrival-pulse{display:none}.arrival-flash{animation:arrivalFlash .2s ease-out forwards}}
+@media(prefers-reduced-motion:reduce){.arrival-pulse{display:none}.arrival-flash{animation:arrivalFlash .2s ease-out forwards}}
+
+/* Metro Final: one SVG carries the cover, full network and focused route. */
+.line-info-dock{display:contents}
+.metro-line-strip{display:none}
+.app[data-network="metro"] .learn-flip-card{transform:none!important;transform-style:flat}
+.app[data-network="metro"] .learn-face-overview{display:none!important}
+.app[data-network="metro"] .learn-face-route{display:block;opacity:1!important;transform:none!important;pointer-events:auto!important;backface-visibility:visible!important}
+.app[data-network="metro"] #focusSvg{transform-origin:50% 50%;transform-style:preserve-3d;transition:transform 760ms cubic-bezier(.22,.72,.18,1),opacity .42s ease;will-change:transform}
+.app[data-network="metro"][data-cover-flipped="true"] #focusSvg{transform:rotateX(180deg)}
+.app[data-network="metro"][data-cover-flipped="true"] #metroDistrictLayer text,
+.app[data-network="metro"][data-cover-flipped="true"] .metro-transfer-name{opacity:0}
+.app[data-network="metro"].flat-map .map-stage{background:radial-gradient(circle at 48% 38%,rgba(28,88,105,.2),transparent 42%),linear-gradient(180deg,#091b25 0%,#06141c 56%,#030d13 100%)}
+.app[data-network="metro"] .grid-rect{opacity:.28}
+
+#metroDistrictLayer text{pointer-events:none;transition:opacity .25s ease}
+.metro-district{fill:#87a6b8;font-size:30px;font-weight:750;letter-spacing:.18em;opacity:.11}
+.metro-water-label{fill:#7ca7bd;font-size:17px;font-weight:650;letter-spacing:.28em;opacity:.2}
+.metro-overview-casing,.metro-overview-color,.metro-overview-hit{fill:none;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.metro-overview-casing{stroke:#02090e;stroke-width:10px;opacity:.9}
+.metro-overview-color{stroke-width:5.6px;opacity:.68;transition:opacity .35s ease,stroke-width .35s ease}
+.metro-overview-hit{stroke:transparent;stroke-width:25px;pointer-events:stroke}
+.metro-overview-route:hover .metro-overview-color{opacity:1;stroke-width:7px}
+.metro-overview-route.is-muted{opacity:.025;pointer-events:none}
+.metro-overview-route.is-selected{opacity:.16;pointer-events:none}
+.metro-overview-station{fill:#f4f8ff;stroke:#06141c;stroke-width:1.8;vector-effect:non-scaling-stroke}
+.metro-transfer-shell{fill:#fff;stroke:#06141c;stroke-width:2;vector-effect:non-scaling-stroke}
+.metro-transfer-core{fill:#48bcae}
+.metro-transfer-name{fill:#eff8ff;font-size:10px;font-weight:700;paint-order:stroke;stroke:#06141c;stroke-width:4px;transition:opacity .25s ease}
+#metroOverviewStationLayer,#metroOverviewTransferLayer{transition:opacity .3s ease}
+.app[data-network="metro"].focused #metroOverviewStationLayer,
+.app[data-network="metro"].focused #metroOverviewTransferLayer{opacity:0;pointer-events:none}
+.app[data-network="metro"]:not(.focused) #focusSceneLayer{opacity:0;pointer-events:none}
+.app[data-network="metro"].focused #focusSceneLayer{opacity:1;pointer-events:auto}
+.app[data-network="metro"] #focusSceneLayer{transition:opacity .28s ease}
+.app[data-network="metro"].flat-map .route-base{stroke:#02090f;stroke-width:17px;opacity:.94;filter:none}
+.app[data-network="metro"].flat-map .route-main{stroke:var(--route);stroke-width:9px;opacity:.86}
+.app[data-network="metro"].flat-map .route-progress{stroke-width:10px;stroke-linecap:butt;filter:none}
+.app[data-network="metro"].flat-map .station-core{fill:#f7fbff;stroke:#06141c;stroke-width:2.5;filter:none}
+.app[data-network="metro"].flat-map .station-label{fill:#f2f8ff;stroke:#06141c;stroke-width:5px}
+.app[data-network="metro"].practice #labelLayer{opacity:0;visibility:hidden;pointer-events:none}
+.app.route-stretching #stationLayer,.app.route-stretching #labelLayer,.app.route-stretching #effectLayer{opacity:0;pointer-events:none}
+.app.line-completing #stationLayer,.app.line-completing #labelLayer{transition:none!important}
+
+.app[data-network="metro"] .metro-line-strip{position:absolute;z-index:18;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:6px;max-width:calc(100% - 36px);padding:6px;border:1px solid var(--border);border-radius:16px;background:rgba(5,20,28,.86);backdrop-filter:blur(18px);overflow-x:auto;scrollbar-width:none;box-shadow:0 15px 45px rgba(0,0,0,.32)}
+.app[data-network="metro"] .metro-line-strip::-webkit-scrollbar{display:none}
+.metro-line-chip{display:flex;align-items:center;gap:7px;height:36px;min-width:42px;padding:0 10px;border:1px solid transparent;border-radius:11px;background:transparent;color:#b7c8d5}
+.metro-line-chip span{width:14px;height:5px;border-radius:999px;flex:0 0 auto}
+.metro-line-chip b{font-size:11px}
+.metro-line-chip:hover,.metro-line-chip.active{background:rgba(255,255,255,.1);border-color:var(--border);color:#fff}
+.app[data-network="metro"].focused .metro-line-strip,.app[data-network="metro"].practice .metro-line-strip{display:none}
+
+.app[data-network="metro"] .line-info-dock{position:absolute;z-index:24;left:50%;bottom:18px;transform:translateX(-50%);width:min(880px,calc(100% - 36px));display:grid;grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr);gap:8px;pointer-events:none;opacity:0;transition:opacity .28s ease,transform .28s ease}
+.app[data-network="metro"].focused:not(.practice) .line-info-dock{opacity:1;pointer-events:auto}
+.app[data-network="metro"] .line-info-dock>.route-card,.app[data-network="metro"] .line-info-dock>.station-card{position:relative;inset:auto;width:auto;min-height:0;opacity:0;transform:translateY(8px);pointer-events:none;margin:0;padding:13px;background:rgba(5,20,28,.88)}
+.app[data-network="metro"] .line-info-dock>.route-card.visible,.app[data-network="metro"] .line-info-dock>.station-card.visible{opacity:1;transform:none;pointer-events:auto}
+.app[data-network="metro"] .line-info-dock .route-options{margin-top:8px}
+.app[data-network="metro"] .line-info-dock .station-card h2{font-size:22px;margin:3px 0}
+.app[data-network="metro"].practice .line-info-dock,.app[data-network="metro"].route-returning .line-info-dock{opacity:0;pointer-events:none}
+
+.practice-settings{position:relative;z-index:5;display:flex;justify-content:center;align-items:center;gap:8px;margin-top:6px;color:var(--muted);font-size:10px}
+.practice-settings select{max-width:150px;border:1px solid var(--border);border-radius:9px;background:rgba(6,18,31,.9);color:#eaf5ff;padding:5px 7px;font-size:10px}
+.practice-settings label{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.typing-ghost{display:none;position:absolute;z-index:2;left:14px;right:14px;top:48px;height:43px;align-items:center;overflow:hidden;pointer-events:none;font-size:17px;letter-spacing:.08em;white-space:pre;color:#536176}
+.typing-ghost .typed{color:var(--success)}.typing-ghost .cursor-char{color:#f4f8ff}.typing-ghost .pending{color:#536176}.typing-ghost .tone{font-size:.76em;vertical-align:super}
+.typing-area.inline-hint .typing-ghost{display:flex}
+.typing-area.inline-hint .typing-input{position:relative;z-index:3;color:transparent!important;caret-color:transparent!important;background:transparent!important}
+.typing-area.inline-hint .typing-cells{opacity:0}
+
+.current-station-beacon{pointer-events:none}.current-target-ring{fill:none;stroke:var(--route);stroke-width:2.2;vector-effect:non-scaling-stroke}.current-target-ring.secondary{opacity:.35;stroke-width:1.2}.current-target-dot{fill:#fff;stroke:#06141c;stroke-width:2;vector-effect:non-scaling-stroke}.current-target-label{fill:#fff;font-size:11px;font-weight:760;paint-order:stroke;stroke:#06141c;stroke-width:4px}
+.layout-update-notice{position:absolute;z-index:60;left:50%;top:118px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid rgba(117,226,173,.35);border-radius:12px;background:rgba(5,25,29,.94);box-shadow:0 14px 40px rgba(0,0,0,.32);font-size:12px}
+.layout-update-notice[hidden]{display:none}.layout-update-notice button{border:0;border-radius:8px;background:#75e2ad;color:#052016;padding:6px 9px;font-weight:700}
+
+@media(max-width:760px){.app[data-network="metro"] .line-info-dock{bottom:12px;width:calc(100% - 18px);grid-template-columns:1fr}.app[data-network="metro"] .line-info-dock>.station-card{display:none}.app[data-network="metro"] .metro-line-strip{bottom:12px;max-width:calc(100% - 18px)}.practice-settings{flex-wrap:wrap}.typing-ghost{top:45px}}
+@media(prefers-reduced-motion:reduce){.app[data-network="metro"] #focusSvg{transition:none!important}}

@@ -18,7 +18,7 @@
     manifest: null, line: null, reverse: false, displayIndex: 0, practice: false,
     answerLocked: false, tickTimer: 0, broadcast: false, searchTimer: 0, pendingMode: '',
     runtime: null, viewMode: 'flat', geographic: null, realRoute: null,
-    experienceProfile: Z.api.network === 'metro' ? 'immersive' : 'standard', returning: false,
+    experienceProfile: Z.api.network === 'metro' ? 'metroFinal' : 'standard', returning: false,
   };
   const renderer = new Z.RouteRenderer(elements.routeMap, viewport, originalIndex => selectStationOriginal(originalIndex));
   const realMapRenderer = new Z.RealMapFocusRenderer({container: elements.realMap});
@@ -137,7 +137,7 @@
 
   function fitCurrentRoute(practiceMode = state.practice) {
     if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.fitRoute();
-    else if (state.experienceProfile === 'immersive') {
+    else if (Z.isEnhancedExperience(state.experienceProfile)) {
       const frame = journeyFrame(state.displayIndex, currentRenderFraction());
       renderer.fitImmersive(frame?.routeProgress || 0, {reverse: state.reverse, strong: practiceMode, practiceVisible: practiceMode});
     } else renderer.fitFullRoute({practiceVisible: practiceMode});
@@ -147,6 +147,10 @@
     if (!elements.experienceSwitch) return;
     elements.experienceSwitch.hidden = state.runtime?.learnExperience?.allowUserOverride === false;
     elements.experienceSwitch.querySelectorAll('[data-experience]').forEach(button => {
+      const applicable = button.dataset.experience === 'standard'
+        || (Z.api.network === 'metro' && button.dataset.experience === 'metroFinal')
+        || (Z.api.network === 'bus' && button.dataset.experience === 'busExperimental');
+      button.hidden = !applicable;
       const active = button.dataset.experience === state.experienceProfile;
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', String(active));

@@ -13,20 +13,54 @@ import {PracticeEngine} from './practice.js?v=3';
 import {learnProduct} from './product.js';
 import {RealMapFocusRenderer} from './real-map.js?v=3';
 import {FocusRenderer, OverviewRenderer} from './renderers.js?v=3';
+import {MetroSchematicOverviewRenderer} from './metro-overview.js';
+import {RouteStretchController} from './route-stretch.js';
+import {spellingLabel, spellingTarget, VALID_SPELLING_SCHEMES} from './spelling.js';
 import {restoreTypingFocus} from './typing-focus.js?v=3';
 
 const product = learnProduct(transitApi.networkType);
 const reducedMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+const PRACTICE_PREFERENCES_KEY = 'transit.learn.practice.preferences';
+
+function loadPracticePreferences() {
+  try {
+    const value = JSON.parse(window.localStorage?.getItem(PRACTICE_PREFERENCES_KEY) || '{}');
+    return {
+      spellingScheme: VALID_SPELLING_SCHEMES.has(value.spellingScheme) ? value.spellingScheme : 'pinyin',
+      inlineHint: Boolean(value.inlineHint),
+    };
+  } catch (_) {
+    return {spellingScheme: 'pinyin', inlineHint: false};
+  }
+}
+
+function savePracticePreferences() {
+  try {
+    window.localStorage?.setItem(PRACTICE_PREFERENCES_KEY, JSON.stringify({
+      spellingScheme: state.spellingScheme,
+      inlineHint: state.inlineHint,
+    }));
+  } catch (_) {}
+}
+
+const practicePreferences = loadPracticePreferences();
 const elements = {
   app: $('#app'), stage: $('#mapStage'), flipScene: $('#learnFlipScene'), canvas: $('#networkCanvas'), svg: $('#focusSvg'), realMap: $('#realMap'),
   routeLayer: $('#routeLayer'), stationLayer: $('#stationLayer'), labelLayer: $('#labelLayer'), effectLayer: $('#effectLayer'), train: $('#vehicle'),
+  metroDistrictLayer: $('#metroDistrictLayer'), metroOverviewRouteLayer: $('#metroOverviewRouteLayer'),
+  metroOverviewStationLayer: $('#metroOverviewStationLayer'), metroOverviewTransferLayer: $('#metroOverviewTransferLayer'),
+  metroLineStrip: $('#metroLineStrip'),
   loading: $('#loading'), intro: $('#intro'), routeCard: $('#routeCard'), stationCard: $('#stationCard'),
   practicePanel: $('#practicePanel'), searchShell: $('#searchShell'), searchInput: $('#searchInput'), searchResults: $('#searchResults'),
   reviewDrawer: $('#reviewDrawer'), resultModal: $('#resultModal'), typingInput: $('#typingInput'), experienceSwitch: $('#experienceSwitch'),
+  spellingScheme: $('#spellingScheme'), inlineHintToggle: $('#inlineHintToggle'), typingGhost: $('#typingGhost'),
+  layoutUpdateNotice: $('#layoutUpdateNotice'), reloadLayoutButton: $('#reloadLayoutButton'),
 };
 
 const state = {
   overview: null,
+  presentation: null,
+  presentationRevision: null,
   networkType: transitApi.networkType,
   route: null,
   color: '#5cc8ff',
@@ -58,9 +92,22 @@ const state = {
   journeyMotionTarget: 0,
   journeyMotionKey: null,
   journeyMotionLastAt: 0,
+  spellingScheme: practicePreferences.spellingScheme,
+  inlineHint: practicePreferences.inlineHint,
 };
 
-const overviewRenderer = new OverviewRenderer({canvas: elements.canvas, stage: elements.stage});
+const overviewRenderer = state.networkType === 'metro'
+  ? new MetroSchematicOverviewRenderer({
+    svg: elements.svg,
+    stage: elements.stage,
+    routeLayer: elements.metroOverviewRouteLayer,
+    districtLayer: elements.metroDistrictLayer,
+    stationLayer: elements.metroOverviewStationLayer,
+    transferLayer: elements.metroOverviewTransferLayer,
+    lineStrip: elements.metroLineStrip,
+    onRouteSelect: routeId => selectRoute(routeId),
+  })
+  : new OverviewRenderer({canvas: elements.canvas, stage: elements.stage});
 const focusRenderer = new FocusRenderer({
   svg: elements.svg,
   routeLayer: elements.routeLayer,
@@ -70,6 +117,12 @@ const focusRenderer = new FocusRenderer({
   train: elements.train,
   stage: elements.stage,
   onStationClick: originalIndex => selectStationByOriginalIndex(originalIndex),
+});
+const stretchController = new RouteStretchController({
+  renderer: focusRenderer,
+  overviewRenderer,
+  maximumScale: state.networkType === 'metro' ? 2.7 : 1.85,
+  reducedMotion,
 });
 const audioPlayer = new StationAudioPlayer();
 const realMapRenderer = new RealMapFocusRenderer({container: elements.realMap});
@@ -81,12 +134,15 @@ const experience = new LearnExperience({
   focusRenderer,
   overviewRenderer,
   realMapRenderer,
+  stretchController,
   reducedMotion,
 });
 const practice = new PracticeEngine({
   onChange: snapshot => renderPractice(snapshot),
   onFinish: snapshot => showResult(snapshot),
+  targetForStation: station => spellingTarget(station, state.spellingScheme),
 });
+let layoutChannel = null;
 
 function restorePracticeTypingFocus() {
   restoreTypingFocus(elements.typingInput, {
@@ -143,6 +199,10 @@ function routeMetaText() {
 function updateExperienceControls() {
   elements.experienceSwitch.hidden = !state.allowExperienceOverride;
   elements.experienceSwitch.querySelectorAll('[data-experience]').forEach(button => {
+    const applicable = button.dataset.experience === 'standard'
+      || (state.networkType === 'metro' && button.dataset.experience === 'metroFinal')
+      || (state.networkType === 'bus' && button.dataset.experience === 'busExperimental');
+    button.hidden = !applicable;
     const active = button.dataset.experience === state.experienceProfile;
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
@@ -165,7 +225,7 @@ function fitCurrentExperience({animate = true, forcePractice = null} = {}) {
   if (!state.route) return Promise.resolve(false);
   const practiceVisible = forcePractice ?? (state.mode === 'timed' || state.mode === 'full');
   const frame = journeyFrame(state.journeyMotionRatio);
-  if (state.experienceProfile === 'immersive') {
+  if (experience.has('cameraFollow') || experience.has('routeStretch')) {
     return focusRenderer.fitImmersive(frame.routeProgress, {
       reverse: state.reverse,
       strong: practiceVisible,
@@ -248,6 +308,8 @@ function rebuildFocusScene({fit = true, animate = true} = {}) {
   if (!state.route) return;
   const geometry = currentGeometry();
   focusRenderer.setRoute(state.route, geometry, state.color);
+  stretchController.setRoute(state.route, geometry);
+  if (fit && experience.has('routeStretch')) stretchController.apply(1);
   focusRenderer.setVehicleType(product.vehicle);
   experience.setProfile(state.experienceProfile);
   renderDynamic();
@@ -268,7 +330,7 @@ async function selectRoute(routeId, stationName = null) {
     stopBroadcast(true);
     practice.reset();
     state.route = route;
-    state.color = routeColor(route.route_no);
+    state.color = route.color || routeColor(route.route_no);
     state.reverse = false;
     state.viewMode = 'flat';
     state.mode = 'overview';
@@ -291,6 +353,9 @@ async function selectRoute(routeId, stationName = null) {
     setActiveMode('overview');
     updateAppClasses();
     updateViewControls();
+    if (enteringFromOverview && overviewRenderer.getView) {
+      focusRenderer.setView(overviewRenderer.getView(), {animate: false});
+    }
     rebuildFocusScene({fit: false});
     renderCards();
     await experience.enterRoute(journeyFrame(0));
@@ -318,8 +383,6 @@ async function clearSelection() {
   state.viewMode = 'flat';
   realMapRenderer.hide();
   updateAppClasses();
-  overviewRenderer.setFocused(false, null);
-  overviewRenderer.setView(overviewRenderer.homeView);
   await experience.returnOverview(journeyFrame(0));
   if (token !== state.loadingRouteToken) return;
   state.route = null;
@@ -516,7 +579,7 @@ function exitPractice() {
 function renderPinyinWords(snapshot) {
   const container = $('#pinyinWords');
   container.innerHTML = '';
-  const tokens = String(snapshot.targetStation?.pinyin || '待校核').split(/\s+/).filter(Boolean);
+  const tokens = String(snapshot.targetDisplay || '待校核').split(/\s+/).filter(Boolean);
   let cursor = 0;
   tokens.forEach(token => {
     const normalized = normalizePinyin(token);
@@ -532,7 +595,7 @@ function renderPinyinWords(snapshot) {
 function renderTypingCells(snapshot) {
   const container = $('#typingCells');
   container.innerHTML = '';
-  const raw = String(snapshot.targetStation?.pinyin || '').toLowerCase();
+  const raw = String(snapshot.targetDisplay || '').toLowerCase();
   let normalizedIndex = 0;
   for (const character of raw) {
     const node = document.createElement('span');
@@ -551,10 +614,37 @@ function renderTypingCells(snapshot) {
   }
 }
 
+function renderTypingGhost(snapshot) {
+  elements.typingGhost.replaceChildren();
+  elements.typingInput.closest('.typing-area').classList.toggle('inline-hint', state.inlineHint);
+  if (!state.inlineHint) return;
+  const raw = String(snapshot.targetDisplay || '').toLowerCase();
+  let normalizedIndex = 0;
+  for (const character of raw) {
+    const node = document.createElement('span');
+    const normalizedCharacter = normalizePinyin(character);
+    if (/\s/.test(character)) {
+      node.className = 'pending';
+      node.textContent = '\u00a0';
+    } else if (!normalizedCharacter) {
+      node.className = /[1-5]/.test(character) ? 'tone' : 'pending';
+      node.textContent = character;
+    } else {
+      node.className = normalizedIndex < snapshot.value.length
+        ? 'typed'
+        : normalizedIndex === snapshot.value.length ? 'cursor-char' : 'pending';
+      node.textContent = character;
+      normalizedIndex += normalizedCharacter.length;
+    }
+    elements.typingGhost.append(node);
+  }
+}
+
 function renderPractice(snapshot) {
   if (state.mode !== 'timed' && state.mode !== 'full') return;
   elements.practicePanel.classList.add('visible');
-  $('#practiceKicker').textContent = state.mode === 'timed' ? '30 秒 · 输入下一站拼音' : '全线 · 输入下一站拼音';
+  const scheme = spellingLabel(state.spellingScheme);
+  $('#practiceKicker').textContent = state.mode === 'timed' ? `30 秒 · ${scheme} · 输入下一站` : `全线 · ${scheme} · 输入下一站`;
   $('#practiceStation').textContent = snapshot.targetStation?.name || snapshot.currentStation?.name || '—';
   $('#practiceNext').textContent = snapshot.targetStation
     ? `当前：${snapshot.currentStation?.name || '起点'} · 打完正好到站`
@@ -567,6 +657,7 @@ function renderPractice(snapshot) {
   $('#practiceProgress').style.width = `${clamp((progress + snapshot.typingRatio / Math.max(1, snapshot.totalStations - 1)) * 100, 0, 100)}%`;
   renderPinyinWords(snapshot);
   renderTypingCells(snapshot);
+  renderTypingGhost(snapshot);
   if (document.activeElement !== elements.typingInput && !snapshot.finished) setTimeout(restorePracticeTypingFocus, 0);
   renderDynamic();
 }
@@ -586,7 +677,7 @@ async function handleTypingInput() {
   }
   if (result.type === 'missing-target') {
     feedback.className = 'typing-feedback bad';
-    feedback.textContent = '当前站拼音尚未生成，请先在校核中填写。';
+    feedback.textContent = `下一站缺少${spellingLabel(state.spellingScheme)}，请先在校核中填写。`;
     return;
   }
   elements.typingInput.value = result.value;
@@ -624,8 +715,13 @@ function showResult(snapshot) {
   $('#resultCpm').textContent = snapshot.cpm;
   $('#resultAccuracy').textContent = `${Math.round(snapshot.accuracy * 100)}%`;
   elements.resultModal.classList.add('visible');
-  experience.leavePractice(journeyFrame(1));
-  if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.fitRoute();
+  if (snapshot.reason === 'complete' && state.mode === 'full') {
+    experience.completeLine(journeyFrame(1));
+    if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.fitRoute();
+  } else {
+    experience.leavePractice(journeyFrame(1));
+    if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.fitRoute();
+  }
 }
 
 async function startBroadcast() {
@@ -809,10 +905,33 @@ $('#practiceAnimatedButton').addEventListener('click', () => setViewMode('animat
 $('#practiceRealButton').addEventListener('click', () => setViewMode('real'));
 $('#exitPracticeButton').addEventListener('click', exitPractice);
 elements.typingInput.addEventListener('input', handleTypingInput);
+elements.spellingScheme.addEventListener('change', event => {
+  const next = VALID_SPELLING_SCHEMES.has(event.target.value) ? event.target.value : 'pinyin';
+  if (practice.locked && practice.running) {
+    event.target.value = state.spellingScheme;
+    showToast('列车正在进站，请到站后再切换输入方案');
+    return;
+  }
+  state.spellingScheme = next;
+  elements.typingInput.value = '';
+  practice.setTargetResolver(station => spellingTarget(station, state.spellingScheme));
+  savePracticePreferences();
+  $('#typingFeedback').className = 'typing-feedback';
+  $('#typingFeedback').textContent = `已切换为${spellingLabel(next)}，目标仍是车辆当前位置的下一站。`;
+  restorePracticeTypingFocus();
+});
+elements.inlineHintToggle.addEventListener('change', event => {
+  state.inlineHint = Boolean(event.target.checked);
+  savePracticePreferences();
+  renderTypingGhost(practice.snapshot());
+  restorePracticeTypingFocus();
+});
 elements.typingInput.closest('.typing-area').addEventListener('animationend', event => {
   if (event.animationName === 'typingError') event.currentTarget.classList.remove('typing-error');
 });
-elements.practicePanel.addEventListener('click', event => { if (!event.target.closest('button')) elements.typingInput.focus(); });
+elements.practicePanel.addEventListener('click', event => {
+  if (!event.target.closest('button,select,input,label')) elements.typingInput.focus();
+});
 // Buttons, maps and other controls may take focus on pointer-down. Restore the
 // hidden practice input from the same click so the next keystroke keeps typing.
 document.addEventListener('click', restorePracticeTypingFocus, true);
@@ -860,6 +979,7 @@ $('#clearLocalAudioButton').addEventListener('click', async () => {
 });
 $('#restartButton').addEventListener('click', restartPractice);
 $('#resultHomeButton').addEventListener('click', clearSelection);
+elements.reloadLayoutButton.addEventListener('click', () => window.location.reload());
 
 // Pointer navigation
 elements.stage.addEventListener('pointerdown', event => {
@@ -963,17 +1083,34 @@ function configureProductUi() {
   elements.realMap.setAttribute('aria-label', product.realMapLabel);
   focusRenderer.setVehicleType(product.vehicle);
   realMapRenderer.setVehicleType(product.vehicle);
+  elements.spellingScheme.value = state.spellingScheme;
+  elements.inlineHintToggle.checked = state.inlineHint;
+  elements.typingInput.closest('.typing-area').classList.toggle('inline-hint', state.inlineHint);
   updateExperienceControls();
+}
+
+function setupLayoutUpdates() {
+  if (state.networkType !== 'metro' || typeof BroadcastChannel === 'undefined') return;
+  layoutChannel?.close();
+  layoutChannel = new BroadcastChannel('transit.metro.layout');
+  layoutChannel.addEventListener('message', event => {
+    const revision = event.data?.revision;
+    if (!revision || revision === state.presentationRevision) return;
+    elements.layoutUpdateNotice.hidden = false;
+  });
 }
 
 async function init() {
   configureProductUi();
   try {
-    const [overview, runtime] = await Promise.all([
+    const [overview, runtime, presentation] = await Promise.all([
       transitApi.overview(),
       transitApi.runtime().catch(() => ({edition: 'unknown', amap: {map_ready: false}})),
+      state.networkType === 'metro' ? transitApi.presentation() : Promise.resolve(null),
     ]);
     state.overview = overview;
+    state.presentation = presentation;
+    state.presentationRevision = presentation?.revision || null;
     state.runtime = runtime;
     state.mapReady = Boolean(runtime.amap?.map_ready);
     state.allowExperienceOverride = userExperienceOverrideAllowed(runtime);
@@ -982,9 +1119,16 @@ async function init() {
       document.querySelectorAll('.admin-only, #reviewButton').forEach(node => { node.hidden = true; });
     }
     updateViewControls();
-    overviewRenderer.setData(overview);
+    overviewRenderer.setData(presentation || overview);
     overviewRenderer.resize();
-    $('#networkMeta').textContent = `${overview.stats.directions} 个方向 · ${overview.stats.station_clusters} 个站点簇 · Canvas 全网 / SVG 单线`;
+    $('#networkMeta').textContent = state.networkType === 'metro'
+      ? `${presentation.routes.length} 条线路 · ${overview.stats.station_clusters} 个站点簇 · 单 SVG 全网与单线 · ${presentation.revision}`
+      : `${overview.stats.directions} 个方向 · ${overview.stats.station_clusters} 个站点簇 · Canvas 全网 / SVG 单线`;
+    setupLayoutUpdates();
+    const requestedRevision = new URLSearchParams(window.location.search).get('layoutRevision');
+    if (requestedRevision && requestedRevision !== state.presentationRevision) {
+      elements.layoutUpdateNotice.hidden = false;
+    }
     elements.loading.classList.add('hidden');
     const routeId = new URLSearchParams(window.location.search).get('route');
     if (routeId) await selectRoute(routeId);
@@ -993,5 +1137,9 @@ async function init() {
   }
 }
 
-window.addEventListener('pagehide', () => experience.destroy(), {once: true});
+window.addEventListener('pagehide', () => {
+  layoutChannel?.close();
+  experience.destroy();
+  overviewRenderer.destroy?.();
+}, {once: true});
 init();

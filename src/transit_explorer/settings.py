@@ -24,7 +24,36 @@ DIST_DIR = _configured_path("TRANSIT_DIST_DIR", PROJECT_ROOT / "dist")
 PUBLIC_DIR = _configured_path("TRANSIT_PUBLIC_DIR", DIST_DIR / "public")
 SHARED_VAR_DIR = VAR_DIR / "shared"
 LANGUAGE_PATH = SHARED_VAR_DIR / "language.json"
-LEARN_EXPERIENCE_PROFILES = ("standard", "immersive")
+LEARN_EXPERIENCE_PROFILES = ("standard", "metroFinal", "busExperimental")
+LEARN_EXPERIENCE_PRESETS = {
+    "metroFinal": {
+        "schematicOverview": True,
+        "coverFlip": True,
+        "routeIsolation": True,
+        "routeStretch": True,
+        "cameraFollow": True,
+        "arrivalPulse": True,
+        "completionRebound": True,
+    },
+    "standard": {
+        "schematicOverview": False,
+        "coverFlip": False,
+        "routeIsolation": True,
+        "routeStretch": False,
+        "cameraFollow": False,
+        "arrivalPulse": True,
+        "completionRebound": False,
+    },
+    "busExperimental": {
+        "schematicOverview": False,
+        "coverFlip": False,
+        "routeIsolation": True,
+        "routeStretch": True,
+        "cameraFollow": True,
+        "arrivalPulse": True,
+        "completionRebound": True,
+    },
+}
 
 
 def _boolean_environment(name: str, default: bool) -> bool:
@@ -35,18 +64,31 @@ def _boolean_environment(name: str, default: bool) -> bool:
 
 
 def _learn_profile(name: str, fallback: str) -> str:
-    value = os.getenv(name, "").strip().lower()
-    return value if value in LEARN_EXPERIENCE_PROFILES else fallback
+    value = os.getenv(name, "").strip()
+    folded = value.casefold()
+    aliases = {
+        "standard": "standard",
+        "metrofinal": "metroFinal",
+        "busexperimental": "busExperimental",
+        "immersive": "metroFinal" if fallback == "metroFinal" else "busExperimental",
+    }
+    return aliases.get(folded, fallback)
 
 
 def learn_experience_config(*, protected_geometry: bool = False) -> dict:
     """Return the shared, browser-visible Learn experience contract."""
 
+    presets = {name: dict(capabilities) for name, capabilities in LEARN_EXPERIENCE_PRESETS.items()}
+    if protected_geometry:
+        for capabilities in presets.values():
+            capabilities["schematicOverview"] = False
+            capabilities["routeStretch"] = False
     payload = {
         "profiles": list(LEARN_EXPERIENCE_PROFILES),
+        "presets": presets,
         "defaults": {
             "bus": _learn_profile("TRANSIT_LEARN_EXPERIENCE_BUS", "standard"),
-            "metro": _learn_profile("TRANSIT_LEARN_EXPERIENCE_METRO", "immersive"),
+            "metro": _learn_profile("TRANSIT_LEARN_EXPERIENCE_METRO", "metroFinal"),
         },
         "allowUserOverride": _boolean_environment("TRANSIT_LEARN_ALLOW_EXPERIENCE_OVERRIDE", True),
     }

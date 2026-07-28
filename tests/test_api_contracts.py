@@ -74,6 +74,12 @@ class InternalApiContractTests(unittest.TestCase):
             service.language.path = root / "language.json"
             service.language._mtime = -1.0
             service.language._items = {}
+        self.presentation_original = (
+            metro_service.presentation_repository.network_path,
+            metro_service.presentation_repository.layout_path,
+        )
+        metro_service.presentation_repository.layout_path = root / "metro-layout.json"
+        metro_service.presentation_repository.invalidate()
         self.client = TestClient(app)
 
     def tearDown(self) -> None:
@@ -84,6 +90,11 @@ class InternalApiContractTests(unittest.TestCase):
             service.language.path = language_path
             service.language._mtime = -1.0
             service.language._items = {}
+        (
+            metro_service.presentation_repository.network_path,
+            metro_service.presentation_repository.layout_path,
+        ) = self.presentation_original
+        metro_service.presentation_repository.invalidate()
         self.temporary.cleanup()
 
     def test_bus_and_metro_share_the_same_query_contract(self) -> None:
@@ -109,6 +120,39 @@ class InternalApiContractTests(unittest.TestCase):
             self.assertEqual(learning.json()["network_id"], network_id)
             self.assertEqual(learning.json()["stops"][1]["name"], "乙站")
             self.assertTrue(search.json()["results"])
+            if network_id == "metro":
+                self.assertIn("focus", learning.json()["geometry"])
+
+    def test_metro_studio_save_immediately_updates_learn_and_presentation(self) -> None:
+        before = self.client.get("/api/metro/presentation")
+        self.assertEqual(before.status_code, 200)
+        self.assertEqual(len(before.json()["routes"]), 1)
+        before_revision = before.json()["revision"]
+
+        saved = self.client.post(
+            "/api/metro/studio",
+            json={
+                "alpha": 0.55,
+                "lines": {
+                    "测试": {
+                        "path": [[10, 10], [110, 50]],
+                        "station_progress": [0, 1],
+                    }
+                },
+                "anchors": {},
+            },
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()["message"], "已保存并应用到地铁练习")
+        self.assertNotEqual(saved.json()["revision"], before_revision)
+        self.assertIn("layoutRevision=", saved.json()["learnUrl"])
+
+        route_id = self.route_ids["metro"]
+        learning = self.client.get("/api/metro/learn/routes/{}".format(route_id)).json()
+        self.assertEqual(learning["geometry"]["focus"]["path"], [[10.0, 10.0], [110.0, 50.0]])
+        self.assertEqual(learning["presentation_revision"], saved.json()["revision"])
+        revision = self.client.get("/api/metro/presentation/revision").json()
+        self.assertEqual(revision["revision"], saved.json()["revision"])
 
     def test_shared_pages_and_removed_legacy_routes(self) -> None:
         for path in ("/", "/bus", "/metro", "/bus/collector", "/metro/collector", "/bus/learn", "/metro/learn", "/studio"):
@@ -116,9 +160,13 @@ class InternalApiContractTests(unittest.TestCase):
         runtime = self.client.get("/api/runtime").json()
         self.assertEqual(runtime["edition"], "internal")
         self.assertEqual(runtime["networks"], ["bus", "metro"])
-        self.assertEqual(runtime["learnExperience"]["profiles"], ["standard", "immersive"])
+        self.assertEqual(
+            runtime["learnExperience"]["profiles"],
+            ["standard", "metroFinal", "busExperimental"],
+        )
         self.assertIn(runtime["learnExperience"]["defaults"]["bus"], runtime["learnExperience"]["profiles"])
         self.assertIn(runtime["learnExperience"]["defaults"]["metro"], runtime["learnExperience"]["profiles"])
+        self.assertTrue(runtime["learnExperience"]["presets"]["metroFinal"]["routeStretch"])
         for path in ("/collector", "/learn", "/api/network/overview", "/api/metro/schematic"):
             self.assertEqual(self.client.get(path).status_code, 404, path)
 
@@ -132,7 +180,7 @@ class InternalApiContractTests(unittest.TestCase):
             },
         ):
             learn = self.client.get("/api/runtime").json()["learnExperience"]
-        self.assertEqual(learn["defaults"], {"bus": "immersive", "metro": "immersive"})
+        self.assertEqual(learn["defaults"], {"bus": "busExperimental", "metro": "metroFinal"})
         self.assertFalse(learn["allowUserOverride"])
 
 

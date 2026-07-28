@@ -80,7 +80,7 @@ export function normalizePinyin(value) {
     .replace(/[üǖǘǚǜ]/g, 'v')
     .replace(/u:/g, 'v')
     .replace(/[1-5]/g, '')
-    .replace(/[^a-zv]/g, '');
+    .replace(/[^a-zv;]/g, '');
 }
 
 export function distance(a, b) {

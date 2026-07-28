@@ -27,9 +27,9 @@ from ..networks.bus.matcher import normalize_stop
 from ..networks.metro.config import LAYOUT_PATH as METRO_LAYOUT
 from ..networks.metro.config import NETWORK_PATH as METRO_NETWORK
 from ..networks.metro.matcher import normalize_name
+from ..networks.metro.presentation import MetroPresentationRepository
 from ..settings import LANGUAGE_PATH, PUBLIC_DIR, WEB_DIR
 from .public_assets import audit_public_bundle, build_public_derivatives, safe_line_id, write_json
-from .schematic import build_schematic_network, point_at_progress
 
 
 Point = Tuple[float, float]
@@ -139,28 +139,6 @@ def _bus_public_data(network: Dict[str, Any], language: StationLanguageStore) ->
     }
 
 
-def _apply_metro_layout(network: Dict[str, Any], layout_path: Path) -> None:
-    if not layout_path.is_file():
-        return
-    try:
-        layout = json.loads(layout_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    line_overrides = layout.get("lines", {})
-    for route in network.get("routes", []):
-        override = line_overrides.get(route.get("id"))
-        schematic = route.get("schematic")
-        if not override or not schematic:
-            continue
-        schematic["path"] = override.get("path", schematic.get("path"))
-        schematic["station_progress"] = override.get("station_progress", schematic.get("station_progress"))
-    for key, override in layout.get("anchors", {}).items():
-        anchor = (network.get("transfer_anchors") or {}).get(key)
-        if anchor and isinstance(override, dict):
-            anchor["x"] = override.get("x", anchor.get("x"))
-            anchor["y"] = override.get("y", anchor.get("y"))
-
-
 def _projection(routes: Sequence[Mapping[str, Any]]) -> Any:
     points = [point for route in routes for point in route.get("schematic", {}).get("path", [])]
     if not points:
@@ -181,10 +159,7 @@ def _projection(routes: Sequence[Mapping[str, Any]]) -> Any:
 
 
 def _metro_public_data(network: Dict[str, Any], language: StationLanguageStore) -> Dict[str, Any]:
-    if "transfer_anchors" not in network:
-        network["routes"] = [dict(route) for route in network.get("routes", [])]
-        build_schematic_network(network)
-    _apply_metro_layout(network, METRO_LAYOUT)
+    network = MetroPresentationRepository(METRO_NETWORK, METRO_LAYOUT).get_network(network)
     routes = [route for route in network.get("routes", []) if route.get("direction") == "forward"]
     project = _projection(routes)
     anchors = network.get("transfer_anchors") or {}

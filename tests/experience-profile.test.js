@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  experienceCapabilities,
   fallbackExperienceProfile,
+  normalizeExperienceProfile,
   resolveExperienceProfile,
   saveExperienceProfile,
   userExperienceOverrideAllowed,
@@ -20,21 +22,29 @@ function storage(initial = {}) {
 test('experience resolution follows URL, storage, runtime, then network fallback', () => {
   const runtime = {learnExperience: {defaults: {bus: 'immersive', metro: 'standard'}}};
   const local = storage({'transit.learn.experience.bus': 'standard'});
-  assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: local, search: '?experience=immersive'}), 'immersive');
+  assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: local, search: '?experience=immersive'}), 'busExperimental');
   assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: local, search: ''}), 'standard');
-  assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: storage(), search: ''}), 'immersive');
+  assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: storage(), search: ''}), 'busExperimental');
   assert.equal(resolveExperienceProfile({network: 'bus', runtime: {}, storage: storage(), search: ''}), 'standard');
-  assert.equal(resolveExperienceProfile({network: 'metro', runtime: {}, storage: storage(), search: ''}), 'immersive');
+  assert.equal(resolveExperienceProfile({network: 'metro', runtime: {}, storage: storage(), search: ''}), 'metroFinal');
 });
 
 test('invalid profile values are ignored and explicit saves are network scoped', () => {
   const local = storage({'transit.learn.experience.metro': 'broken'});
   const runtime = {learnExperience: {defaults: {metro: 'broken'}}};
-  assert.equal(resolveExperienceProfile({network: 'metro', runtime, storage: local, search: '?experience=nope'}), 'immersive');
+  assert.equal(resolveExperienceProfile({network: 'metro', runtime, storage: local, search: '?experience=nope'}), 'metroFinal');
   assert.equal(saveExperienceProfile('metro', 'standard', local), true);
   assert.equal(local.values.get('transit.learn.experience.metro'), 'standard');
   assert.equal(saveExperienceProfile('bus', 'invalid', local), false);
   assert.equal(fallbackExperienceProfile('bus'), 'standard');
+});
+
+test('legacy immersive values migrate to network-specific capability presets', () => {
+  assert.equal(normalizeExperienceProfile('immersive', 'metro'), 'metroFinal');
+  assert.equal(normalizeExperienceProfile('immersive', 'bus'), 'busExperimental');
+  assert.equal(experienceCapabilities('metroFinal', 'metro').coverFlip, true);
+  assert.equal(experienceCapabilities('standard', 'metro').routeStretch, false);
+  assert.equal(experienceCapabilities('busExperimental', 'bus').cameraFollow, true);
 });
 
 test('runtime can hide user-facing experience controls', () => {

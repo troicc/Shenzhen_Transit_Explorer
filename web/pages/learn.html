@@ -60,12 +60,20 @@
                 <circle class="vehicle-wheel" cx="7" cy="16" r="2.2"/>
               </g>
             </defs>
-            <rect id="gridRect" class="grid-rect" x="0" y="0" width="10000" height="6000" fill="url(#microGrid)"/>
-            <g id="routeLayer"></g>
-            <g id="stationLayer"></g>
-            <g id="labelLayer"></g>
-            <g id="effectLayer"></g>
-            <g id="vehicle" class="vehicle" opacity="0"><g class="vehicle-content"></g></g>
+            <g id="mapFlipStage">
+              <rect id="gridRect" class="grid-rect" x="0" y="0" width="10000" height="6000" fill="url(#microGrid)"/>
+              <g id="metroDistrictLayer"></g>
+              <g id="metroOverviewRouteLayer"></g>
+              <g id="metroOverviewStationLayer"></g>
+              <g id="metroOverviewTransferLayer"></g>
+              <g id="focusSceneLayer">
+                <g id="routeLayer"></g>
+                <g id="stationLayer"></g>
+                <g id="labelLayer"></g>
+                <g id="effectLayer"></g>
+                <g id="vehicle" class="vehicle" opacity="0"><g class="vehicle-content"></g></g>
+              </g>
+            </g>
           </svg>
         </section>
       </div>
@@ -106,7 +114,8 @@
     </nav>
     <div class="experience-switch" id="experienceSwitch" aria-label="学习体验">
       <button data-experience="standard" aria-pressed="false">标准体验</button>
-      <button data-experience="immersive" aria-pressed="false">沉浸体验</button>
+      <button data-experience="metroFinal" aria-pressed="false">Metro Final</button>
+      <button data-experience="busExperimental" aria-pressed="false">公交实验</button>
     </div>
   </section>
 
@@ -133,6 +142,9 @@
     </div>
   </section>
 
+  <div class="metro-line-strip" id="metroLineStrip" aria-label="地铁线路选择"></div>
+
+  <div class="line-info-dock" id="lineInfoDock">
   <aside class="route-card" id="routeCard">
     <div class="route-card-head">
       <div class="route-badge" id="routeBadge">—</div>
@@ -172,6 +184,7 @@
       <button id="locateButton">定位此站</button>
     </div>
   </aside>
+  </div>
 
   <section class="practice-panel" id="practicePanel" aria-live="polite">
     <div class="practice-main">
@@ -183,7 +196,24 @@
       <div class="typing-area">
         <div class="pinyin-words" id="pinyinWords"></div>
         <div class="typing-cells" id="typingCells"></div>
+        <div class="typing-ghost" id="typingGhost" aria-hidden="true"></div>
         <input id="typingInput" class="typing-input" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="输入站名拼音">
+        <div class="practice-settings">
+          <select id="spellingScheme" aria-label="拼音方案">
+            <option value="pinyin">普通话全拼</option>
+            <option value="jyutping">粤拼</option>
+            <optgroup label="双拼方案">
+              <option value="zrm">自然码双拼</option>
+              <option value="flypy">小鹤双拼</option>
+              <option value="mspy">微软双拼</option>
+              <option value="sogou">搜狗双拼</option>
+              <option value="abc">智能 ABC 双拼</option>
+              <option value="jiajia">拼音加加双拼</option>
+              <option value="ziguang">紫光双拼</option>
+            </optgroup>
+          </select>
+          <label><input id="inlineHintToggle" type="checkbox"> 输入框内提示</label>
+        </div>
         <div class="typing-feedback" id="typingFeedback">输入下一站拼音，车辆会平滑驶向它。</div>
       </div>
       <div class="practice-stats">
@@ -235,9 +265,12 @@
   </section>
 
   <div class="network-meta" id="networkMeta">—</div>
+  <div class="layout-update-notice" id="layoutUpdateNotice" hidden>
+    <span>地铁线路微调已更新</span><button id="reloadLayoutButton">重新载入线路</button>
+  </div>
   <div class="toast" id="toast"></div>
 </div>
 <script type="module" src="/static/js/navigation.js"></script>
-<script type="module" src="/static/js/learn/app.js"></script>
+<script type="module" src="/static/js/learn/app.js?v=4"></script>
 </body>
 </html>
