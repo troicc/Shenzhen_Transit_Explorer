@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>地铁示意 · 校核工作台</title>
+  <link rel="stylesheet" href="/static/metro_studio.css" />
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">地铁示意 · 校核工作台</div>
+    <div class="stats" id="stats"></div>
+    <div class="actions">
+      <button id="fitBtn" title="适应窗口">⤢ 适应</button>
+      <button id="undoBtn" title="撤销 Ctrl+Z" disabled>↶ 撤销</button>
+      <button id="redoBtn" title="重做 Ctrl+Shift+Z" disabled>↷ 重做</button>
+      <button id="exportBtn">导出 JSON</button>
+      <button id="saveBtn" class="primary">保存</button>
+    </div>
+  </header>
+
+  <main id="layout">
+    <aside id="sidebar">
+      <section>
+        <h3>线路</h3>
+        <ul id="lineList" class="line-list"></ul>
+      </section>
+      <section>
+        <h3>显示层</h3>
+        <div class="toggles">
+          <label><input type="checkbox" id="layerReal" /> 真实几何</label>
+          <label><input type="checkbox" id="layerSch" checked /> 示意线路</label>
+          <label><input type="checkbox" id="layerStations" checked /> 站点</label>
+          <label><input type="checkbox" id="layerAnchors" checked /> 换乘锚点</label>
+          <label><input type="checkbox" id="layerLabels" /> 站名</label>
+          <label><input type="checkbox" id="layerHandles" /> 折点手柄</label>
+        </div>
+      </section>
+      <section>
+        <h3>站距混合 α <span id="alphaVal" class="num">0.55</span></h3>
+        <input type="range" id="alphaSlider" min="0" max="1" step="0.01" value="0.55" />
+        <div class="hint">0 = 均匀 · 1 = 真实站距</div>
+      </section>
+      <section>
+        <h3>诊断</h3>
+        <div id="diag" class="diag">—</div>
+      </section>
+    </aside>
+
+    <div id="canvasWrap">
+      <svg id="stage" xmlns="http://www.w3.org/2000/svg">
+        <rect id="stageBg" x="0" y="0" width="100" height="100" fill="#0e1116" />
+        <g id="viewport">
+          <g id="realLayer"></g>
+          <g id="lineLayer"></g>
+          <g id="handleLayer"></g>
+          <g id="stationLayer"></g>
+          <g id="anchorLayer"></g>
+          <g id="labelLayer"></g>
+        </g>
+      </svg>
+      <div id="hud" class="hud"></div>
+    </div>
+
+    <aside id="inspector">
+      <section>
+        <h3>检查器</h3>
+        <div id="inspectBody" class="inspect">点选元素查看详情</div>
+      </section>
+      <section>
+        <h3>操作</h3>
+        <ul class="help">
+          <li><b>拖背景</b> 平移 · <b>滚轮</b> 缩放</li>
+          <li><b>拖换乘锚点</b>：所有经过线路同步移动</li>
+          <li><b>点线路</b> 选中 · <b>拖折点</b> 调线形</li>
+          <li><b>拖站点</b> 沿线滑动</li>
+          <li><b>Ctrl+Z / Ctrl+Shift+Z</b> 撤销/重做</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script type="module" src="/static/metro_studio.js"></script>
+</body>
+</html>

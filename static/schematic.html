@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07101d">
+<title>站粤公交 · 深圳公交拼音与粤语</title>
+<link rel="stylesheet" href="/static/schematic.css">
+</head>
+<body>
+<div class="app">
+  <div id="mapStage" class="map-stage">
+    <canvas id="networkCanvas"></canvas>
+    <svg id="routeSvg" aria-label="深圳公交线路学习示意图">
+      <defs>
+        <pattern id="smallGrid" width="44" height="44" patternUnits="userSpaceOnUse">
+          <path d="M44 0H0V44" fill="none" stroke="rgba(174,198,226,.045)" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect id="gridRect" x="0" y="0" width="10000" height="6000" fill="url(#smallGrid)"/>
+      <g id="selectedRouteLayer"></g>
+      <g id="stationLayer"></g>
+      <g id="labelLayer"></g>
+      <g id="train" opacity="0">
+        <circle class="train-halo" r="18"/><circle class="train-disc" r="13"/>
+        <rect x="-7.5" y="-5.5" width="15" height="10" rx="3" fill="#111"/>
+        <path d="M-5 -1.5H5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="-4.2" cy="6" r="2" fill="#07101d"/><circle cx="4.2" cy="6" r="2" fill="#07101d"/>
+      </g>
+    </svg>
+    <div id="loading" class="loading"><strong>正在读取公交线网…</strong><span>第一次加载会读取全网总览。</span></div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">粤</div>
+      <div class="brand-copy"><strong>站粤公交</strong><span>深圳公交站名拼音与粤语学习</span></div>
+    </div>
+    <nav class="segmented" aria-label="练习模式">
+      <button class="mode-btn active" data-mode="overview">全网总览</button>
+      <button class="mode-btn" data-mode="timed">30 秒拼音</button>
+      <button class="mode-btn" data-mode="full">全线拼音</button>
+    </nav>
+    <div class="top-actions">
+      <a class="icon-btn link-btn" href="/" title="返回地理全网图">地图</a>
+      <button id="homeBtn" class="icon-btn" title="返回全网">⌂</button>
+      <button id="reviewBtn" class="icon-btn review-btn" title="校核拼音与音频">校核</button>
+      <div class="search-wrap">
+        <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="线路或站点"></div>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+    </div>
+  </header>
+
+  <section id="hero" class="hero">
+    <div class="hero-kicker">全网 Canvas · 单线 SVG · 粤语播报</div>
+    <h1>从公交全网，<br>进入一条线路学习。</h1>
+    <p>总览保持全部线路的固定相对位置；选中线路后切换为轨道交通式示意图，均衡站距并显示拼音、站序和粤语播报。</p>
+  </section>
+
+  <section id="focusCard" class="focus-card">
+    <div class="focus-head">
+      <div id="lineBadge" class="line-badge">—</div>
+      <div class="focus-title"><strong id="focusLineName">未选择线路</strong><span id="focusTerminals">搜索或点击一条线路</span></div>
+    </div>
+    <div class="focus-actions">
+      <button id="forwardBtn" class="soft-btn active">正向</button>
+      <button id="reverseBtn" class="soft-btn">反向</button>
+      <button id="startBtn" class="soft-btn">开始全线拼音</button>
+      <button id="broadcastBtn" class="soft-btn">▶ 全线播报</button>
+    </div>
+    <div class="focus-meta">
+      <span id="lineMeta">—</span>
+      <span class="focus-toggles">
+        <label><input id="schematicToggle" type="checkbox" checked> 示意折线</label>
+        <label><input id="balancedToggle" type="checkbox" checked> 均衡站距</label>
+        <label><input id="allLabelsToggle" type="checkbox"> 全部站名</label>
+      </span>
+    </div>
+  </section>
+
+  <section id="stationCard" class="station-card">
+    <div class="station-eyebrow">Current station</div>
+    <div id="stationName" class="station-name">—</div>
+    <div id="stationSubtitle" class="station-subtitle">请选择一条线路</div>
+    <div id="stationPinyin" class="station-subtitle">拼音：—</div>
+    <div id="stationAudioState" class="station-subtitle">粤语：系统 zh-HK 语音</div>
+    <div id="stationLines" class="station-lines"></div>
+    <div class="station-actions"><button id="speakBtn">🔊 粤语播报</button><button id="locateBtn">定位此站</button></div>
+  </section>
+
+  <section id="practiceDock" class="practice-dock">
+    <div class="practice-row">
+      <div class="practice-current"><small id="practiceLabel">输入普通话拼音（无需声调）</small><strong id="practiceStation">—</strong><div id="practicePinyin" class="practice-pinyin"></div></div>
+      <input id="typeInput" class="type-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="照着上方拼音输入">
+      <div class="practice-stats">
+        <div class="stat"><strong id="timeStat">∞</strong><span>剩余</span></div>
+        <div class="stat"><strong id="correctStat">0</strong><span>正确</span></div>
+        <div class="stat"><strong id="accuracyStat">—</strong><span>正确率</span></div>
+      </div>
+    </div>
+    <div class="practice-bottom"><div id="feedback" class="feedback">选择线路后开始练习。</div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div>
+  </section>
+
+  <aside id="reviewDrawer" class="review-drawer">
+    <div class="review-head"><div><h3>站名语言校核</h3><p>自动拼音只作为初稿。多音字、专名和粤语音频可以在这里覆盖，修改会写入 data/station_language.json。</p></div><button id="reviewClose" class="review-close">×</button></div>
+    <div class="review-section">
+      <label class="review-label">当前站</label><strong id="reviewStationName" class="review-station-name">—</strong>
+    </div>
+    <div class="review-section">
+      <label class="review-label" for="reviewPinyin">普通话拼音（无声调）</label><input id="reviewPinyin" class="review-input">
+      <label class="review-label" for="reviewAudioUrl">粤语音频 URL（可选）</label><input id="reviewAudioUrl" class="review-input" placeholder="https://.../station.mp3">
+      <label class="review-label" for="reviewNote">备注</label><textarea id="reviewNote" class="review-textarea" placeholder="多音字、站名来源或音频说明"></textarea>
+      <div class="review-actions"><button id="saveLanguage" class="primary">保存站点设置</button><button id="playReviewAudio">试听</button></div>
+    </div>
+    <div class="review-section">
+      <label class="review-label">本机自定义音频</label>
+      <div class="review-actions"><button id="chooseLocalAudio">选择音频</button><button id="clearLocalAudio">移除本机音频</button></div>
+      <input id="localAudioFile" type="file" accept="audio/*" hidden>
+      <div id="localAudioState" class="audio-status">未设置本机音频</div>
+    </div>
+    <div class="review-section">
+      <a class="download-link" href="/api/schematic/language/export">导出全部拼音与音频覆盖 JSON</a>
+    </div>
+  </aside>
+
+  <div id="networkMeta" class="attribution">正在载入数据…</div>
+  <div id="toast" class="toast"></div>
+</div>
+<script src="/static/schematic.js"></script>
+</body>
+</html>

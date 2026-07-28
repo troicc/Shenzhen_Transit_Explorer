@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>深圳公交线路批量采集</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark">深</div><div><strong>深圳公交全网</strong><span>高德线路批量缓存器</span></div></div>
+    <nav class="nav-links"><a href="/bus">公交全网</a><a href="/metro">地铁线网</a><a href="/bus/learn">公交学习</a><a href="/metro/learn">地铁学习</a><a class="active" href="/bus/collector">数据采集</a><a href="/metro/collector">地铁采集</a></nav>
+    <div id="topStatus" class="top-status">正在读取状态…</div>
+  </header>
+
+  <main class="collector-main">
+    <section class="collector-left">
+      <div class="panel collector-section">
+        <div id="metricGrid" class="metric-grid"></div>
+      </div>
+
+      <div class="panel collector-section">
+        <div class="collector-controls">
+          <div class="field"><label for="batchSize">本轮最多线路</label><input id="batchSize" type="number" min="1" max="1000" value="100"></div>
+          <div class="field"><label for="delayMs">每次查询间隔（毫秒）</label><input id="delayMs" type="number" min="500" max="10000" step="100" value="1200"></div>
+          <div class="button-row">
+            <button id="startBtn" class="button primary">开始 / 继续</button>
+            <button id="pauseBtn" class="button">暂停</button>
+            <button id="retryBtn" class="button warn">重试失败项</button>
+            <button id="buildBtn" class="button">构建全网</button>
+          </div>
+        </div>
+        <div style="height:12px"></div>
+        <div class="current-card">
+          <div id="routeToken" class="route-token">—</div>
+          <div><h3 id="currentTitle">等待开始</h3><p id="currentSubtitle">浏览器会逐条调用 AMap.LineSearch，并把结果写入本地 SQLite。</p></div>
+          <span id="currentBadge" class="badge">空闲</span>
+        </div>
+        <div style="height:10px"></div>
+        <div class="progress"><div id="progressBar"></div></div>
+        <div id="progressText" style="margin-top:7px;color:var(--muted);font-size:11px">本轮 0 / 0</div>
+      </div>
+
+      <div class="panel collector-section" style="min-height:0;flex:1;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong>运行日志</strong><button id="clearLogBtn" class="button">清空</button></div>
+        <div id="logBox" class="log" style="flex:1;min-height:190px"></div>
+      </div>
+    </section>
+
+    <section class="collector-right panel">
+      <div style="padding:13px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div><strong>待复核 / 失败线路</strong><div style="color:var(--muted);font-size:10px;margin-top:3px">选择候选并手动指定上下行，之后可直接重新构建。</div></div>
+        <button id="refreshReviewBtn" class="button">刷新</button>
+      </div>
+      <div class="review-layout">
+        <div id="reviewList" class="review-list list"><div class="empty">暂无项目</div></div>
+        <div id="reviewDetail" class="review-detail"><div class="empty">点击左侧线路查看高德候选。</div></div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="toast" class="toast"></div>
+<script src="/static/collector.js"></script>
+</body>
+</html>

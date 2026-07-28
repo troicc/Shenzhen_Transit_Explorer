@@ -1,0 +1,14 @@
+
+/*
+ * 练习过程中只保留当前题目站的站名和换乘站牌。
+ * 线路上的普通站点圆点继续保留，便于观察行驶距离。
+ */
+body.practice-on #transferLayer .transfer-hub.v41-practice-hidden,
+body.practice-on #labelLayer .station-label.v41-practice-hidden{
+  display:none!important;
+}
+
+/* 当前站提示环位于列车下方，不能盖住车辆。 */
+#currentStationOverlay{
+  pointer-events:none;
+}

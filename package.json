@@ -1,0 +1,10 @@
+{
+  "name": "shenzhen-transit-explorer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:scripts": "node --check static/learn/app.js && node --check static/learn/renderers.js && node --check static/learn/real-map.js",
+    "check:public": "for file in zhanyue/src/public/modules/*.js; do node --check \"$file\"; done",
+    "test": "npm run check:scripts && npm run check:public && node --test tests/*.test.js"
+  }
+}

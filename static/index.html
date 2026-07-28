@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07101d">
+  <title>深圳公交全网抽象图</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark">深</div><div><strong>深圳公交全网</strong><span>固定相对位置 · Canvas 分级渲染</span></div></div>
+    <nav class="nav-links"><a class="active" href="/bus">公交全网</a><a href="/metro">地铁线网</a><a href="/bus/learn">公交学习</a><a href="/metro/learn">地铁学习</a><a href="/bus/collector">公交采集</a></nav>
+    <div id="topStatus" class="top-status">正在加载全网…</div>
+  </header>
+
+  <main class="viewer-main">
+    <div id="mapStage" class="map-stage">
+      <canvas id="routeCanvas"></canvas>
+      <canvas id="labelCanvas"></canvas>
+    </div>
+
+    <aside class="sidebar panel">
+      <div class="sidebar-head"><h2>深圳公交线路网络</h2><p id="networkMeta">正在读取构建数据…</p></div>
+      <div class="search-wrap"><input id="searchInput" class="search-input" placeholder="搜索线路、起终点或站名" style="width:100%"><div id="searchResults" class="search-results"></div></div>
+      <div id="routeCard" class="route-card"><div class="empty">点击线路，或在上方搜索。</div></div>
+      <div id="stopList" class="stop-list"></div>
+    </aside>
+
+    <div class="map-toolbar">
+      <button id="homeBtn" title="全网">⌂</button><button id="zoomInBtn" title="放大">＋</button><button id="zoomOutBtn" title="缩小">−</button>
+    </div>
+    <div class="legend panel">总览只加载简化线路；放大后按视口加载详细折线和站点。<br>黄色小点表示仅由站序插值得到的近似站位。</div>
+
+    <div id="loadingOverlay" class="loading-overlay">
+      <div class="loading-card panel"><strong id="loadingTitle">读取全网数据</strong><span id="loadingText">如果尚未采集线路，请先进入“数据采集”。</span></div>
+    </div>
+  </main>
+</div>
+<div id="toast" class="toast"></div>
+<script src="/static/viewer.js"></script>
+</body>
+</html>

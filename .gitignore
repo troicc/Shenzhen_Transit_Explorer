@@ -1,0 +1,39 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 密钥
+.env
+
+# 系统垃圾
+.DS_Store
+
+# 大体积 / 可再生的数据产物（由采集与构建脚本生成）
+data/*.db
+data/*.gz
+data/source.xlsx
+data/manifest.json
+data/bus/
+
+# 工作台运行时保存的校核结果（由 /metro/studio 保存产生）
+data/metro_schematic_layout.json
+
+# 原版快照（本地备份，不入库）
+origin_processing.zip
+backup/
+
+# 导出→站粤 工作区产物（可再生 / 属站粤项目副本，不入库；apply 脚本本身入库）
+data/zhanyue_*.json
+data/apply/*.html
+data/apply/*.bak
+data/apply/**/*.html
+data/apply/**/*.bak
+# 历史单文件及配套说明只作本地迁移基准，避免将完整精确数据误传到公开仓库
+data/apply/upgrade html/
+
+# 站粤双构建产物（由 python -m zhanyue.build 生成）
+zhanyue/dist/
+
+# 修复前的旧"翻转版"导出备份（本地参考用；git 历史已保留原版）
+metro/export_zhanyue_flippedversion.py

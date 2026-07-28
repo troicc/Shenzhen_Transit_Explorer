@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#07101d">
+  <title>深圳地铁线路批量采集</title>
+  <link rel="stylesheet" href="/static/metro_collector.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark">轨</div><div><strong>深圳地铁线网</strong><span>官方站序 × 高德几何采集器</span></div></div>
+    <nav><a href="/bus">公交全网</a><a href="/metro">地铁线网</a><a href="/metro/learn">地铁学习</a><a class="active" href="/metro/collector">地铁采集</a></nav>
+    <div id="topStatus" class="top-status">正在读取状态…</div>
+  </header>
+
+  <main>
+    <section class="left-column">
+      <div class="panel section">
+        <div class="section-head"><div><h2>地铁采集进度</h2><p>官方页面提供线路和站序，高德只补充站点坐标与线路折线。</p></div><button id="syncBtn" class="button">同步官方站序</button></div>
+        <div id="metricGrid" class="metric-grid"></div>
+      </div>
+
+      <div class="panel section">
+        <div class="controls">
+          <label>本轮最多线路<input id="batchSize" type="number" min="1" max="100" value="16"></label>
+          <label>查询间隔（毫秒）<input id="delayMs" type="number" min="500" max="10000" step="100" value="1200"></label>
+          <div class="buttons">
+            <button id="startBtn" class="button primary">开始 / 继续</button>
+            <button id="pauseBtn" class="button">暂停</button>
+            <button id="retryBtn" class="button warn">重试失败项</button>
+            <button id="buildBtn" class="button success">构建地铁线网</button>
+            <a class="button" href="/metro">查看地铁线网</a>
+            <a class="button" href="/metro/learn">拼音与粤语学习</a>
+          </div>
+        </div>
+        <div class="current-card">
+          <div id="routeToken" class="route-token">—</div>
+          <div class="current-copy"><h3 id="currentTitle">等待开始</h3><p id="currentSubtitle">每条线路会按多个别名查询，候选结果立即写入 data/metro.db。</p></div>
+          <span id="currentBadge" class="badge">空闲</span>
+        </div>
+        <div class="progress"><div id="progressBar"></div></div>
+        <div id="progressText" class="progress-text">本轮 0 / 0</div>
+      </div>
+
+      <div class="panel section log-section">
+        <div class="section-head compact"><strong>运行日志</strong><button id="clearLogBtn" class="button">清空</button></div>
+        <pre id="logBox" class="log"></pre>
+      </div>
+    </section>
+
+    <section class="panel review-panel">
+      <div class="section-head review-head"><div><h2>待复核 / 失败线路</h2><p>低于自动通过阈值时，可手动指定候选和方向。</p></div><button id="refreshReviewBtn" class="button">刷新</button></div>
+      <div class="review-layout">
+        <div id="reviewList" class="review-list"><div class="empty">暂无项目</div></div>
+        <div id="reviewDetail" class="review-detail"><div class="empty">点击左侧线路查看高德候选。</div></div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="toast" class="toast"></div>
+<script src="/static/metro_collector.js"></script>
+</body>
+</html>

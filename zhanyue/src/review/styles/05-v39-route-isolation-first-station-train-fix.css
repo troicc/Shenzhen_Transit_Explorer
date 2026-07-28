@@ -1,0 +1,101 @@
+
+/* 选中线路后，非选中线路仅保留极弱的空间参照，不参与交互。 */
+body.has-line-selection .route-group.is-muted{
+  opacity:.018!important;
+  pointer-events:none!important;
+}
+body.has-line-selection .route-group.is-selected{
+  opacity:1!important;
+}
+body.has-line-selection .route-group.is-selected .route-color{
+  opacity:1!important;
+  stroke-width:8.2px!important;
+  filter:none!important;
+}
+body.practice-on .route-group.is-selected .route-color{
+  opacity:.78!important;
+  filter:none!important;
+}
+body.has-line-selection .route-group.is-selected .route-casing{
+  opacity:.96!important;
+  stroke-width:13px!important;
+}
+body.has-line-selection .route-group.is-selected .route-progress{
+  opacity:1!important;
+  stroke-width:9.5px!important;
+  stroke-linecap:butt!important;
+}
+
+/* 当前线路站点始终清楚可辨。 */
+body.has-line-selection #stationLayer .station{
+  opacity:1!important;
+}
+body.has-line-selection #stationLayer .station .station-core{
+  fill:#f5f8fc!important;
+  stroke:#07101d!important;
+  stroke-width:2.5px!important;
+  opacity:1!important;
+}
+body.practice-on #stationLayer .station.is-ahead{
+  opacity:.72!important;
+}
+body.practice-on #stationLayer .station.is-ahead .station-core{
+  fill:#8995a7!important;
+  stroke:#07101d!important;
+  opacity:1!important;
+}
+body.has-line-selection #stationLayer .station.is-current{
+  opacity:1!important;
+}
+body.has-line-selection #stationLayer .station.is-current .station-core{
+  fill:#fff!important;
+  stroke-width:3.6px!important;
+}
+body.has-line-selection #transferLayer .transfer-hub{
+  opacity:1!important;
+}
+body.practice-on #transferLayer .transfer-hub.is-ahead{
+  opacity:.7!important;
+}
+body.has-line-selection #transferLayer .hub-bg{
+  fill:#fff!important;
+  stroke:#07101d!important;
+  stroke-width:1.5px!important;
+}
+body.has-line-selection #transferLayer .hub-name{
+  fill:#101722!important;
+  opacity:1!important;
+}
+body.has-line-selection #labelLayer .station-label{
+  fill:#f4f7fb!important;
+  stroke:#07101d!important;
+  stroke-width:4.5px!important;
+  opacity:1!important;
+}
+
+/* 恢复列车的白色圆形底盘，深色地图上仍清晰。 */
+#train .train-halo{
+  display:block!important;
+  fill:rgba(255,255,255,.18)!important;
+}
+#train .train-disc{
+  display:block!important;
+  fill:#fff!important;
+  stroke:#07101d!important;
+  stroke-width:2px!important;
+  vector-effect:non-scaling-stroke;
+}
+#train .train-body{
+  stroke:#07101d!important;
+  stroke-width:1px!important;
+  vector-effect:non-scaling-stroke;
+}
+#train .train-window{
+  stroke:#fff!important;
+}
+#train .train-wheel{
+  fill:#07101d!important;
+}
+
+/* 保持输入框无闪烁插入光标。 */
+.type-input{caret-color:transparent!important;}

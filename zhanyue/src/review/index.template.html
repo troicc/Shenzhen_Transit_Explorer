@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07101d">
+<title>站粤 · 深圳地铁拼音与粤语播报</title>
+<meta name="zhanyue-build" content="v3-mac-trackpad-final-2026-07-27">
+
+
+
+
+
+
+
+
+
+
+  <!-- ZHANYUE_STYLES -->
+</head>
+<body class="map-overview-flipped">
+<div class="app">
+  <div class="map-stage" id="mapStage">
+    <svg id="metroMap" viewBox="20 45 1240 625" role="img" aria-label="深圳地铁自绘交互线网图">
+      <defs>
+        <pattern id="smallGrid" width="44" height="44" patternUnits="userSpaceOnUse">
+          <path d="M 44 0 L 0 0 0 44" fill="none" stroke="rgba(174,198,226,.05)" stroke-width="1"/>
+        </pattern>
+        <pattern id="majorGrid" width="176" height="176" patternUnits="userSpaceOnUse">
+          <rect width="176" height="176" fill="url(#smallGrid)"/>
+          <path d="M 176 0 L 0 0 0 176" fill="none" stroke="rgba(174,198,226,.075)" stroke-width="1"/>
+        </pattern>
+        <filter id="routeGlow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="3.1" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="1.6" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="nodeGlow" x="-160%" y="-160%" width="420%" height="420%">
+          <feGaussianBlur stdDeviation="4" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="trainGlow" x="-180%" y="-180%" width="460%" height="460%">
+          <feGaussianBlur stdDeviation="4.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <clipPath id="viewportClip"><rect x="0" y="0" width="1280" height="718" rx="16"/></clipPath>
+      </defs>
+      <g clip-path="url(#viewportClip)">
+        <rect x="0" y="0" width="1280" height="718" fill="url(#majorGrid)" class="grid-major"/>
+        <g id="mapFlipStage">
+        <g id="districtLayer">
+          <text class="district" x="180" y="165">宝安</text>
+          <text class="district" x="312" y="505">南山</text>
+          <text class="district" x="585" y="505">福田</text>
+          <text class="district" x="780" y="510">罗湖</text>
+          <text class="district" x="535" y="185">龙华</text>
+          <text class="district" x="925" y="360">龙岗</text>
+          <text class="district" x="1105" y="225">坪山</text>
+          <text class="district" x="1065" y="545">盐田</text>
+          <text class="water-label" x="615" y="685">深 圳 湾 · 香 港</text>
+        </g>
+        <g id="routeLayer"></g>
+        <g id="stationLayer"></g>
+        <g id="transferLayer"></g>
+        <g id="labelLayer"></g>
+        <g id="train" class="train" opacity="0">
+          <circle class="train-halo" r="18"/>
+          <circle class="train-disc" r="13"/>
+          <rect class="train-body" x="-7.5" y="-5.6" width="15" height="10" fill="#111"/>
+          <path class="train-window" d="M-5 -1.5 H5"/>
+          <circle class="train-wheel" cx="-4.2" cy="6" r="2"/>
+          <circle class="train-wheel" cx="4.2" cy="6" r="2"/>
+        </g>
+        <g id="reviewLayer"></g>
+        <g id="hoverLayer"></g>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">粤</div>
+      <div class="brand-copy">
+        <strong>站粤</strong>
+        <span>深圳轨道交通站名挑战</span>
+      </div>
+    </div>
+    <nav class="segmented" aria-label="练习模式">
+      <button class="mode-btn active" data-mode="overview">全网总览</button>
+      <button class="mode-btn" data-mode="timed">30 秒拼音</button>
+      <button class="mode-btn" data-mode="full">全线拼音</button>
+    </nav>
+    <div class="top-actions">
+      <button id="homeBtn" class="icon-btn" title="返回全网">⌂</button>
+      <button id="reviewBtn" class="icon-btn review-btn" title="打开人工校核">校核</button>
+      <div class="search-box">
+        <span>⌕</span>
+        <input id="searchInput" list="stationOptions" placeholder="搜索站点">
+        <datalist id="stationOptions"></datalist>
+      </div>
+    </div>
+  </header>
+
+  <section id="hero" class="hero">
+    <div class="hero-kicker">真实线网结构 · 自绘 SVG · 粤语学习</div>
+    <h1>沿着深圳地铁，<br>记住每一个站。</h1>
+    <p>选择一条线路开始。线路结构依据深圳线网参考图重绘，练习时列车会沿真实走向推进，而不是在随意排列的直线上移动。</p>
+  </section>
+
+  <div id="lineInfoDock" class="line-info-dock">
+  <section id="focusCard" class="focus-card">
+    <div class="focus-head">
+      <div id="lineBadge" class="line-badge">1</div>
+      <div class="focus-title">
+        <strong id="focusLineName">1号线</strong>
+        <span id="focusTerminals">罗湖 → 机场东</span>
+      </div>
+    </div>
+    <div class="focus-actions">
+      <button id="forwardBtn" class="soft-btn active">正向</button>
+      <button id="reverseBtn" class="soft-btn">反向</button>
+      <button id="startBtn" class="soft-btn">开始全线拼音</button>
+      <button id="broadcastBtn" class="soft-btn">▶ 全线播报</button>
+    </div>
+    <div class="focus-meta">
+      <span id="lineMeta">30 站 · 8 个换乘站</span><span class="mode-note">滚轮缩小可返回全网</span>
+      <span class="focus-toggles">
+        <label><input id="balancedToggle" type="checkbox" checked> 均衡站距</label>
+        <label><input id="allLabelsToggle" type="checkbox"> 全部站名</label>
+      </span>
+    </div>
+  </section>
+
+  <section id="stationCard" class="station-card">
+    <div class="station-eyebrow">Current station</div>
+    <div id="stationName" class="station-name">罗湖</div>
+    <div id="stationSubtitle" class="station-subtitle">1号线第 1 站</div>
+    <div id="stationPinyin" class="station-subtitle">拼音：luo hu</div>
+    <div id="stationLines" class="station-lines"></div>
+    <div class="station-actions">
+      <button id="speakBtn">🔊 粤语播报</button>
+      <button id="locateBtn">定位此站</button>
+    </div>
+  </section>
+  </div>
+
+  <div id="lineStrip" class="line-strip" aria-label="线路选择"></div>
+
+  <section id="practiceDock" class="practice-dock">
+    <div class="practice-row">
+      <div class="practice-current">
+        <small id="practiceLabel">输入普通话拼音（无需声调）</small>
+        <strong id="practiceStation">罗湖</strong>
+        <div id="practicePinyin" class="practice-pinyin" aria-label="目标拼音"></div>
+      </div>
+      <div id="typingField" class="typing-field">
+        <div id="typingGhost" class="typing-ghost" aria-hidden="true"></div>
+        <input id="typeInput" class="type-input" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="latin" placeholder="照着上方拼音输入">
+      </div>
+      <div class="practice-stats">
+        <div class="stat"><strong id="timeStat">∞</strong><span>剩余</span></div>
+        <div class="stat"><strong id="correctStat">0</strong><span>正确</span></div>
+        <div class="stat"><strong id="accuracyStat">—</strong><span>正确率</span></div>
+      </div>
+    </div>
+    <div class="practice-bottom">
+      <div class="practice-settings">
+        <select id="spellingScheme" class="practice-setting-select" aria-label="拼音方案">
+          <option value="pinyin">普通话全拼</option>
+          <option value="jyutping">粤拼（声调提示）</option>
+          <optgroup label="双拼方案">
+            <option value="zrm">自然码双拼</option>
+            <option value="flypy">小鹤双拼</option>
+            <option value="mspy">微软双拼</option>
+            <option value="sogou">搜狗双拼</option>
+            <option value="abc">智能 ABC 双拼</option>
+            <option value="jiajia">拼音加加双拼</option>
+            <option value="ziguang">紫光双拼</option>
+          </optgroup>
+        </select>
+        <label class="inline-hint-toggle"><input id="inlineHintToggle" type="checkbox">输入框内提示</label>
+      </div>
+      <div id="feedback" class="feedback" aria-live="polite">输入站名的普通话拼音；空格可省略。</div>
+      <div class="progress-cluster">
+        <button id="focusToggle" class="focus-toggle" title="显示/隐藏信息栏">专注模式</button>
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+      </div>
+    </div>
+  </section>
+
+
+  <aside id="reviewDrawer" class="review-drawer" aria-label="人工校核工具">
+    <div class="review-head">
+      <div><h3>人工校核</h3><p>逐线核对走向、折点、站点落位与拼音。改动会保存在本浏览器，并可导出 JSON。</p></div>
+      <button id="reviewClose" class="review-close">×</button>
+    </div>
+    <div class="review-help" style="margin-top:13px">校核模式下，直接拖动白色站点即可让它沿线路前后移动；开启折点后可拖动线路拐点。建议先校正线路，再处理站距、拼音和音频。</div>
+
+    <div class="review-section">
+      <label class="review-label" for="reviewLineSelect">线路</label>
+      <select id="reviewLineSelect" class="review-select"></select>
+      <div class="review-toggle" style="margin-top:10px"><span>显示并拖动线路折点</span><input id="verticesToggle" type="checkbox"></div>
+    </div>
+
+    <div class="review-section">
+      <div class="review-nav">
+        <button id="reviewPrev">‹</button><strong id="reviewStationName">—</strong><button id="reviewNext">›</button>
+      </div>
+      <div class="review-coords"><span id="reviewStationNo">第 1 站</span><span id="reviewCoords">x 0 · y 0</span></div>
+    </div>
+
+    <div class="review-section">
+      <label class="review-label" for="reviewPinyin">普通话拼音（无声调）</label>
+      <input id="reviewPinyin" class="review-input" autocomplete="off">
+      <label class="review-label" for="reviewProgress" style="margin-top:11px">站点在线路上的位置</label>
+      <div class="range-row"><input id="reviewProgress" type="range" min="0" max="10000" step="1"><span id="reviewProgressValue" class="range-value">0.00%</span></div>
+      <div class="nudge-row"><button data-nudge="-0.01">−1%</button><button data-nudge="-0.002">−0.2%</button><button data-nudge="0.002">+0.2%</button><button data-nudge="0.01">+1%</button></div>
+      <div id="spacingStats" class="spacing-stats">站距：—</div>
+    </div>
+
+    <div class="review-section">
+      <label class="review-label">站点自定义音频</label>
+      <div class="audio-grid">
+        <button id="reviewAudioChoose">选择音频</button>
+        <button id="reviewAudioPlay">试听</button>
+        <button id="reviewAudioClear">移除</button>
+      </div>
+      <input id="reviewAudioFile" type="file" accept="audio/*" hidden>
+      <label class="review-label" for="reviewAudioUrl" style="margin-top:10px">在线音频 URL（可选）</label>
+      <input id="reviewAudioUrl" class="review-input" inputmode="url" placeholder="https://.../station.mp3">
+      <div id="reviewAudioStatus" class="audio-status">未设置自定义音频</div>
+    </div>
+
+    <div class="review-section">
+      <label class="review-label">线路校正工具</label>
+      <div class="review-tool-grid">
+        <button id="snapLineStations">站点贴线</button>
+        <button id="balanceLineStations">分段均匀</button>
+        <button id="undoReview">撤销一步</button>
+      </div>
+    </div>
+
+    <div class="review-section">
+      <label class="review-label">复核状态</label>
+      <div class="status-row">
+        <button data-status="unreviewed">未复核</button><button data-status="confirmed">已确认</button><button data-status="needs-fix">待修正</button>
+      </div>
+      <label class="review-label" for="reviewNote" style="margin-top:11px">备注</label>
+      <textarea id="reviewNote" class="review-textarea" placeholder="例如：站点应向东移动；官方拼音待确认"></textarea>
+      <div id="reviewCount" class="review-coords"><span>本线复核 0/0</span><span>0%</span></div>
+      <div class="review-progress"><div id="reviewProgressBar"></div></div>
+    </div>
+
+    <div class="review-section">
+      <div class="review-actions">
+        <button id="exportReview" class="primary">导出校核 JSON</button>
+        <button id="importReview">导入 JSON</button>
+        <button id="saveReview">保存到浏览器</button>
+        <button id="resetReview">清除本地改动</button>
+      </div>
+      <input id="importReviewFile" type="file" accept="application/json" hidden>
+    </div>
+  </aside>
+
+  <div class="attribution">
+    线网几何依据 Wahsaw 的深圳轨道交通图重绘（CC BY-SA 4.0）<br>
+    站序：深圳市交通运输局 · 本项目非官方产品
+  </div>
+  <div id="toast" class="toast"></div>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <!-- ZHANYUE_SCRIPTS -->
+</body>
+</html>
