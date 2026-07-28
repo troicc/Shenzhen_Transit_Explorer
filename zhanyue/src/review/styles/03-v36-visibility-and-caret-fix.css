@@ -1,7 +1,0 @@
-
-/* 拉伸线路由 viewBox 自身负责可视区域，不能再被固定 1280×718 clipPath 裁掉。 */
-.type-input,
-.typing-field .type-input,
-.typing-field.inline .type-input{
-  caret-color:transparent!important;
-}

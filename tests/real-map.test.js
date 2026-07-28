@@ -8,7 +8,7 @@ import {
   normalizeRotation,
   shortestRotationDelta,
   smoothedGeoDirection,
-} from '../static/learn/real-map.js';
+} from '../web/js/learn/real-map.js';
 
 test('real map vehicle interpolates along the selected route', () => {
   const path = [[114, 22], [114.01, 22], [114.02, 22]];

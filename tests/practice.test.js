@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {PracticeEngine} from '../static/learn/practice.js';
+import {PracticeEngine} from '../web/js/learn/practice.js';
 
 const stops = [
   {name: '起点', pinyin: 'qi dian'},

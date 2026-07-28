@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from build_network import build_focus_geometry, focus_self_intersections, publish_split_data
+from transit_explorer.networks.bus.builder import (
+    build_focus_geometry,
+    focus_self_intersections,
+    publish_split_data,
+)
 
 
 class FocusGeometryTests(unittest.TestCase):
@@ -83,11 +87,11 @@ class SplitPublishingTests(unittest.TestCase):
             result = publish_split_data(network, root)
             manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(result["route_files"], 1)
-            self.assertEqual(manifest["routes"][0]["data_path"], "bus/routes/1%3Adown.json.gz")
-            with gzip.open(root / "bus" / "overview.json.gz", "rt", encoding="utf-8") as handle:
+            self.assertEqual(manifest["routes"][0]["data_path"], "routes/1%3Adown.json.gz")
+            with gzip.open(root / "overview.json.gz", "rt", encoding="utf-8") as handle:
                 overview = json.load(handle)
             self.assertEqual(overview["routes"][0]["stop_count"], 2)
-            self.assertTrue((root / "bus" / "routes" / "1%3Adown.json.gz").exists())
+            self.assertTrue((root / "routes" / "1%3Adown.json.gz").exists())
 
 
 if __name__ == "__main__":

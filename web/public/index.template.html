@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07101d">
+  <meta name="robots" content="noarchive,nosnippet,noimageindex">
+  <meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
+  <meta http-equiv="Content-Security-Policy" content="__TRANSIT_CSP__">
+  <meta name="transit-build" content="__TRANSIT_BUILD_ID__">
+  <title>深圳交通站名挑战</title>
+  <style>__TRANSIT_CSS__</style>
+</head>
+<body>
+  <main class="app overview-state" id="app">
+    <section class="network-landing hidden" id="networkLanding" aria-label="选择交通网络">
+      <div class="network-landing-copy"><small>SHENZHEN TRANSIT</small><h1>选择一个网络，<br>开始站名挑战。</h1><p>公交与地铁共用同一套学习体验，公开包只包含不可逆派生资产。</p></div>
+      <div class="network-landing-cards" id="networkCards"></div>
+    </section>
+
+    <section class="overview" id="overview" aria-label="深圳交通线网概览">
+      <img id="overviewImage" alt="带来源标识的深圳交通线网公开概览">
+      <div class="overview-shade"></div>
+    </section>
+
+    <section class="focus hidden" id="focus" aria-label="当前线路地图">
+      <div id="realMap" class="real-map" aria-label="当前线路真实地图" aria-hidden="true"></div>
+      <svg id="routeMap" role="img" aria-label="当前线路示意图">
+        <defs>
+          <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="3.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="softGlow" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="7" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <g id="viewportLayer">
+          <path id="routeShadow" class="route-shadow"/>
+          <path id="routeBase" class="route-base"/>
+          <path id="routeColor" class="route-color"/>
+          <path id="routeProgress" class="route-progress"/>
+          <g id="stationLayer"></g>
+          <g id="labelLayer"></g>
+          <g id="train" class="train" opacity="0">
+            <circle class="train-halo" r="20"/>
+            <circle class="train-disc" r="11"/>
+            <rect x="-6.5" y="-4.5" width="13" height="9" rx="2.5"/>
+            <circle cx="-3.8" cy="5.5" r="1.4"/><circle cx="3.8" cy="5.5" r="1.4"/>
+          </g>
+        </g>
+      </svg>
+      <div class="map-help">双指平移 · 捏合或滚轮缩放</div>
+    </section>
+
+    <header class="topbar">
+      <button class="brand" id="homeButton" type="button" aria-label="返回全网总览">
+        <b>粤</b><span>站粤<small id="brandSubtitle">深圳交通站名挑战</small></span>
+      </button>
+
+      <nav class="mode-switch" aria-label="练习模式">
+        <button id="overviewModeButton" class="mode-button active" type="button">全网总览</button>
+        <button id="timedModeButton" class="mode-button" type="button">30 秒拼音</button>
+        <button id="fullModeButton" class="mode-button" type="button">全线拼音</button>
+      </nav>
+
+      <div class="top-actions">
+        <button id="homeIconButton" class="icon-button" type="button" title="返回全网" aria-label="返回全网">⌂</button>
+        <div class="search-box">
+          <span>⌕</span>
+          <input id="searchInput" autocomplete="off" placeholder="搜索站点" aria-label="搜索站点">
+          <div id="searchResults" class="search-results hidden" role="listbox"></div>
+        </div>
+      </div>
+    </header>
+
+    <section class="hero" id="hero">
+      <div id="heroKicker" class="hero-kicker">真实线网结构 · 派生示意 · 站名学习</div>
+      <h1 id="heroTitle">沿着深圳交通，<br>记住每一个站。</h1>
+      <p id="heroText">选择一条线路开始。车辆会沿线路推进，支持全线练习与 30 秒挑战。</p>
+      <div class="hero-note"><span></span>公开学习版按需读取单线数据，精确全网源图不随页面发布。</div>
+    </section>
+
+    <section class="route-dock hidden" id="routeDock">
+      <article class="line-panel">
+        <div class="line-heading">
+          <span id="routeCode" class="line-badge">—</span>
+          <div><strong id="routeName">未选择线路</strong><small id="routeMeta">—</small></div>
+        </div>
+        <div class="line-actions">
+          <button id="forwardButton" class="soft-button active" type="button">正向</button>
+          <button id="reverseButton" class="soft-button" type="button">反向</button>
+          <button id="practiceButton" class="soft-button primary" type="button">开始全线拼音</button>
+          <button id="broadcastButton" class="soft-button" type="button">▶ 全线播报</button>
+        </div>
+        <div class="view-switch" aria-label="地图样式">
+          <button id="flatViewButton" class="active" type="button" aria-pressed="true">扁平示意</button>
+          <button id="animatedViewButton" type="button" aria-pressed="false">动画地图</button>
+          <button id="realViewButton" type="button" aria-pressed="false">真实地图</button>
+        </div>
+        <div class="line-foot">
+          <span id="lineStats">—</span>
+          <label><input id="allLabelsToggle" type="checkbox"> 显示全部站名</label>
+          <button id="resetViewButton" class="text-button" type="button">完整显示线路</button>
+        </div>
+      </article>
+
+      <article class="station-panel">
+        <div class="station-eyebrow">CURRENT STATION</div>
+        <strong id="stationName">—</strong>
+        <span id="stationPinyin">—</span>
+        <small id="stationMeta">—</small>
+        <div class="station-actions">
+          <button id="previousStationButton" type="button" title="上一站">‹</button>
+          <button id="speakButton" type="button">🔊 粤语播报</button>
+          <button id="locateButton" type="button">定位此站</button>
+          <button id="nextStationButton" type="button" title="下一站">›</button>
+        </div>
+      </article>
+    </section>
+
+    <nav class="line-strip" id="lineStrip" aria-label="线路选择"></nav>
+
+    <section class="practice hidden" id="practicePanel">
+      <div class="practice-topline">
+        <span id="practiceModeLabel">全线拼音</span>
+        <div class="practice-map-switch" aria-label="练习地图样式">
+          <button id="practiceFlatViewButton" class="active" type="button">扁平</button>
+          <button id="practiceAnimatedViewButton" type="button">动画</button>
+          <button id="practiceRealViewButton" type="button">真实</button>
+        </div>
+        <button id="exitPracticeButton" type="button">结束练习</button>
+      </div>
+      <div class="practice-row">
+        <div class="practice-current">
+          <small id="practicePrompt">输入普通话拼音（无需声调）</small>
+          <strong id="practiceStation">—</strong>
+          <span id="practicePinyin">—</span>
+        </div>
+        <div class="typing-shell">
+          <div id="typingHint" class="typing-hint"></div>
+          <input id="typingInput" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="latin" aria-label="输入站名拼音" placeholder="照着提示输入">
+          <div id="feedback" class="feedback" aria-live="polite">输入正确后，列车前往下一站。</div>
+        </div>
+        <div class="practice-stats">
+          <div><strong id="timeStat">∞</strong><span>剩余</span></div>
+          <div><strong id="correctStat">0</strong><span>正确</span></div>
+          <div><strong id="accuracyStat">—</strong><span>正确率</span></div>
+          <div><strong id="speedStat">0</strong><span>字/分</span></div>
+        </div>
+      </div>
+      <div class="practice-bottom">
+        <div class="practice-settings">
+          <select id="spellingScheme" aria-label="输入方案">
+            <option value="full">普通话全拼</option>
+            <option value="initials">拼音首字母</option>
+          </select>
+          <label><input id="inlineHintToggle" type="checkbox"> 输入框内提示</label>
+        </div>
+        <div class="progress-track"><div id="progressBar"></div></div>
+        <strong id="progressStat">1 / 1</strong>
+      </div>
+    </section>
+
+    <section class="access hidden" id="accessPanel" role="dialog" aria-modal="true">
+      <div><span class="access-mark">粤</span><h2>需要访问口令</h2><p>请输入站点管理员提供的访问口令。</p><input id="accessInput" type="password" autocomplete="current-password"><button id="accessButton">进入学习版</button><small id="accessError"></small></div>
+    </section>
+
+    <div id="attribution" class="attribution">线网来源于公开运营信息 · 非官方产品</div>
+    <div class="loading" id="loading">正在读取公开线路目录…</div>
+    <div class="toast" id="toast"></div>
+  </main>
+  <script>__TRANSIT_BOOTSTRAP__</script>
+</body>
+</html>

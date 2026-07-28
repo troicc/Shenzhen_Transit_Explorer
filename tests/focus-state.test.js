@@ -8,9 +8,9 @@ import {
   stationTravelPhase,
   stationVisualState,
   travelIndex,
-} from '../static/learn/core.js';
-import {computeFocusView} from '../static/learn/geometry.js';
-import {restoreTypingFocus, shouldRestoreTypingFocus} from '../static/learn/typing-focus.js';
+} from '../web/js/learn/core.js';
+import {computeFocusView} from '../web/js/learn/geometry.js';
+import {restoreTypingFocus, shouldRestoreTypingFocus} from '../web/js/learn/typing-focus.js';
 
 test('travelIndex follows the selected direction', () => {
   assert.deepEqual(
