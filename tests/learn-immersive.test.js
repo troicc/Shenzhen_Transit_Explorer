@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {LearnExperience} from '../web/js/learn/experience.js';
+import {LearnExperience, returnMergeEase} from '../web/js/learn/experience.js';
 
 function fixture(profile = 'metroFinal', cameraMode = 'follow', {
   reducedMotion = true,
@@ -35,7 +35,7 @@ function fixture(profile = 'metroFinal', cameraMode = 'follow', {
     pointAtProgress: progress => [progress * 100, 40],
     pointAhead: progress => [progress * 100 + 5, 40],
     getView: () => ({x: 0, y: 0, w: 100, h: 80}),
-    setView: () => events.push(['camera-view']),
+    setView: (_view, options = {}) => events.push(['camera-view', options.duration]),
   };
   const experience = new LearnExperience({
     profile,
@@ -97,7 +97,7 @@ test('Metro Final waits for the wrapper flip before starting route geometry and 
   experience.destroy();
 });
 
-test('Metro Final flips before the return settle and cancels pending map animation', async () => {
+test('Metro Final merges the route into the network before starting the wrapper flip', async () => {
   const {experience, events} = fixture('metroFinal', 'follow', {
     reducedMotion: false,
     recordTransitions: true,
@@ -112,16 +112,51 @@ test('Metro Final flips before the return settle and cancels pending map animati
 
   await experience.returnOverview();
 
-  const waitIndex = events.findIndex(event => event[0] === 'wait');
   const stretchIndex = events.findIndex(event => event[0] === 'stretch');
-  const fitIndex = events.findIndex(event => event[0] === 'full-fit');
-  assert.deepEqual(events[waitIndex - 1], ['flip', true]);
-  assert.equal(events[waitIndex][1], 780);
-  assert.ok(events.indexOf(events.find(event => event[0] === 'cancel-stretch')) < waitIndex);
-  assert.ok(stretchIndex > waitIndex);
-  assert.ok(fitIndex > waitIndex);
-  assert.equal(events[fitIndex][1], 420);
+  const cameraIndex = events.findIndex(event => event[0] === 'camera-view');
+  const focusedIndex = events.findIndex(event => event[0] === 'focused');
+  const flipIndex = events.findIndex(event => event[0] === 'flip' && event[1] === true);
+  assert.equal(events[stretchIndex][2], 980);
+  assert.equal(events[cameraIndex][1], 980);
+  assert.ok(events.findIndex(event => event[0] === 'cancel-stretch') < stretchIndex);
+  assert.ok(events.findIndex(event => event[0] === 'cancel-view') < cameraIndex);
+  assert.ok(stretchIndex < focusedIndex);
+  assert.ok(cameraIndex < focusedIndex);
+  assert.ok(focusedIndex < flipIndex);
+  assert.deepEqual(events[flipIndex - 2], ['wait', 300]);
+  assert.deepEqual(events[flipIndex - 1], ['wait', 80]);
+  assert.deepEqual(events[flipIndex + 1], ['wait', 780]);
   experience.destroy();
+});
+
+test('metro transactional return matrices align stretched focus geometry with the overview', () => {
+  assert.equal(returnMergeEase(0), 0);
+  assert.equal(returnMergeEase(1), 1);
+  assert.ok(returnMergeEase(.1) > .1);
+
+  const mapStage = {};
+  const focusScene = {};
+  const experience = Object.assign(Object.create(LearnExperience.prototype), {
+    network: 'metro',
+    capabilities: {coverFlip: true},
+    overviewRenderer: {mapFlipStage},
+    focusRenderer: {
+      svg: {querySelector: selector => selector === '#focusSceneLayer' ? focusScene : null},
+      getView: () => ({x: 100, y: 50, w: 400, h: 200}),
+    },
+    stretchController: {geometry: {displayCenter: [300, 200], displayScale: 2}},
+  });
+
+  const preview = experience.metroReturnPreview({x: 0, y: 0, w: 1000, h: 500});
+  assert.equal(preview.mapStage, mapStage);
+  assert.equal(preview.focusScene, focusScene);
+  assert.equal(preview.mapScaleX, .4);
+  assert.equal(preview.mapScaleY, .4);
+  assert.equal(preview.mapTranslateX, 100);
+  assert.equal(preview.mapTranslateY, 50);
+  assert.equal(preview.focusScale, .5);
+  assert.equal(preview.focusTranslateX, 150);
+  assert.equal(preview.focusTranslateY, 100);
 });
 
 test('arrival is one-shot and return fits before flipping to overview', async () => {
