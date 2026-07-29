@@ -18,7 +18,7 @@ class FakeTarget {
 
 function harness({flipped = false} = {}) {
   const target = new FakeTarget();
-  const calls = {pan: [], zoom: [], begin: 0, end: 0, starts: [], ends: []};
+  const calls = {pan: [], zoom: [], begin: 0, end: 0, starts: [], ends: [], doubleClicks: 0};
   const frames = new Map();
   const timers = new Map();
   let nextFrame = 1;
@@ -33,6 +33,8 @@ function harness({flipped = false} = {}) {
     target,
     renderer,
     isFlipped: () => flipped,
+    onBackgroundDoubleClick: () => { calls.doubleClicks += 1; },
+    isInteractiveTarget: node => Boolean(node?.closest?.('.route-hit,.station-node,.metro-overview-transfer')),
     onInteractionStart: source => calls.starts.push(source),
     onInteractionEnd: source => calls.ends.push(source),
     requestFrame: callback => { const id = nextFrame++; frames.set(id, callback); return id; },
@@ -121,4 +123,38 @@ test('Safari gesture scale is incremental and manual navigation ends after the g
   assert.equal(value.calls.begin, 1);
   assert.equal(value.calls.end, 1);
   assert.deepEqual(value.calls.ends, ['gesture']);
+});
+
+test('double-clicking blank map background triggers return but route and station targets do not', () => {
+  const value = harness();
+  const blankEvent = {
+    target: {closest: () => null},
+    prevented: 0,
+    stopped: 0,
+    preventDefault() { this.prevented += 1; },
+    stopPropagation() { this.stopped += 1; },
+  };
+  value.controller.handleDoubleClick(blankEvent);
+  assert.equal(value.calls.doubleClicks, 1);
+  assert.equal(blankEvent.prevented, 1);
+  assert.equal(blankEvent.stopped, 1);
+
+  const interactiveEvent = {
+    target: {closest: selector => selector.includes('.station-node') ? {} : null},
+    preventDefault() { throw new Error('interactive targets must not be consumed'); },
+  };
+  value.controller.handleDoubleClick(interactiveEvent);
+  assert.equal(value.calls.doubleClicks, 1);
+});
+
+test('background double-click cancels pending navigation work without a second interaction end', () => {
+  const value = harness();
+  value.controller.handleWheel(wheel({deltaY: 12}));
+  value.controller.handleDoubleClick({target: {closest: () => null}, preventDefault() {}, stopPropagation() {}});
+  value.flushFrames();
+  value.flushTimers();
+  assert.equal(value.calls.doubleClicks, 1);
+  assert.equal(value.calls.end, 1);
+  assert.deepEqual(value.calls.ends, ['wheel']);
+  assert.equal(value.calls.pan.length, 0);
 });

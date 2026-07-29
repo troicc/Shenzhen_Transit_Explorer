@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {LearnExperience} from '../web/js/learn/experience.js';
 
-function fixture(profile = 'metroFinal') {
+function fixture(profile = 'metroFinal', cameraMode = 'follow') {
   const events = [];
   const classes = new Set();
   const appElement = {
@@ -32,6 +32,7 @@ function fixture(profile = 'metroFinal') {
     focusRenderer,
     overviewRenderer: {},
     realMapRenderer: {hide: () => events.push(['hide-real'])},
+    cameraMode,
     reducedMotion: true,
   });
   return {experience, events, appElement, flipScene};
@@ -44,6 +45,8 @@ const frame = {
   mapMode: 'flat',
   journeyActive: true,
   arrivedOriginalIndex: 4,
+  targetOriginalIndex: 5,
+  phase: 'arriving',
 };
 
 test('Metro Final route entry flips to the route face and uses immersive fit', async () => {
@@ -59,7 +62,7 @@ test('arrival is one-shot and return fits before flipping to overview', async ()
   const {experience, events, flipScene} = fixture();
   await experience.enterRoute(frame);
   await experience.arrive(frame);
-  assert.deepEqual(events.filter(event => event[0] === 'arrival'), [['arrival', 4]]);
+  assert.deepEqual(events.filter(event => event[0] === 'arrival'), [['arrival', 5]]);
   events.length = 0;
   await experience.returnOverview(frame);
   assert.deepEqual(events.map(event => event[0]), ['hide-real', 'full-fit']);
@@ -74,6 +77,19 @@ test('switching profile only replaces the controller and keeps caller journey st
   await experience.enterPractice({...frame, direction: journeyState.direction});
   assert.deepEqual(journeyState, {routeId: 'M1', direction: 'reverse', currentDisplayIndex: 6, input: 'sha'});
   assert.equal(appElement.dataset.experience, 'metroFinal');
+  assert.equal(events.some(event => event[0] === 'immersive-fit'), true);
+  experience.destroy();
+});
+
+test('full-line camera mode keeps Metro Final capabilities while fitting the whole stretched route', async () => {
+  const {experience, events, appElement} = fixture('metroFinal', 'full');
+  await experience.enterRoute(frame);
+  assert.equal(appElement.dataset.experience, 'metroFinal');
+  assert.equal(experience.has('routeStretch'), true);
+  assert.equal(experience.has('completionRebound'), true);
+  assert.deepEqual(events[0], ['full-fit', 920]);
+  experience.setCameraMode('follow');
+  await experience.reframe(frame, {practiceVisible: true, animate: false});
   assert.equal(events.some(event => event[0] === 'immersive-fit'), true);
   experience.destroy();
 });

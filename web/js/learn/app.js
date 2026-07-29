@@ -7,19 +7,19 @@ import {LearnExperience} from './experience.js';
 import {
   fallbackExperienceProfile,
   resolveExperienceProfile,
-  saveExperienceProfile,
   userExperienceOverrideAllowed,
 } from './experience-profile.js';
 import {PracticeEngine} from './practice.js?v=3';
 import {learnProduct} from './product.js';
 import {RealMapFocusRenderer} from './real-map.js?v=3';
-import {FocusRenderer, OverviewRenderer} from './renderers.js?v=3';
+import {FocusRenderer, OverviewRenderer} from './renderers.js?v=4';
 import {MetroSchematicOverviewRenderer} from './metro-overview.js';
 import {NavigationController} from './navigation-controller.js';
 import {RouteStretchController} from './route-stretch.js';
 import {spellingLabel, spellingTarget, VALID_SPELLING_SCHEMES} from './spelling.js';
 import {LearnStore} from './store.js';
 import {restoreTypingFocus} from './typing-focus.js?v=3';
+import {overviewZoomProgress} from './view-progress.js';
 
 const product = learnProduct(transitApi.networkType);
 const reducedMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
@@ -47,7 +47,7 @@ function savePracticePreferences() {
 }
 
 const practicePreferences = loadPracticePreferences();
-const learnStore = new LearnStore();
+const learnStore = new LearnStore({cameraMode: product.id === 'metro' ? 'follow' : 'full'});
 const elements = {
   app: $('#app'), stage: $('#mapStage'), flipScene: $('#learnFlipScene'), canvas: $('#networkCanvas'), svg: $('#focusSvg'), realMap: $('#realMap'),
   routeLayer: $('#routeLayer'), stationLayer: $('#stationLayer'), labelLayer: $('#labelLayer'), effectLayer: $('#effectLayer'), train: $('#vehicle'),
@@ -56,7 +56,7 @@ const elements = {
   metroLineStrip: $('#metroLineStrip'),
   loading: $('#loading'), intro: $('#intro'), routeCard: $('#routeCard'), stationCard: $('#stationCard'),
   practicePanel: $('#practicePanel'), searchShell: $('#searchShell'), searchInput: $('#searchInput'), searchResults: $('#searchResults'),
-  reviewDrawer: $('#reviewDrawer'), resultModal: $('#resultModal'), typingInput: $('#typingInput'), experienceSwitch: $('#experienceSwitch'),
+  reviewDrawer: $('#reviewDrawer'), resultModal: $('#resultModal'), typingInput: $('#typingInput'), cameraModeSwitch: $('#cameraModeSwitch'),
   spellingScheme: $('#spellingScheme'), inlineHintToggle: $('#inlineHintToggle'), typingGhost: $('#typingGhost'),
   layoutUpdateNotice: $('#layoutUpdateNotice'), reloadLayoutButton: $('#reloadLayoutButton'),
 };
@@ -86,6 +86,7 @@ const state = {
   journeyMotionTarget: 0,
   journeyMotionKey: null,
   journeyMotionLastAt: 0,
+  journeyMotionWaiters: new Set(),
   spellingScheme: practicePreferences.spellingScheme,
   inlineHint: practicePreferences.inlineHint,
 };
@@ -95,6 +96,7 @@ Object.defineProperties(state, {
   browseIndex: {get: () => learnStore.getState().browseIndex},
   mode: {get: () => learnStore.getState().practiceMode},
   viewMode: {get: () => learnStore.getState().viewMode},
+  cameraMode: {get: () => learnStore.getState().cameraMode},
   broadcasting: {get: () => learnStore.getState().broadcasting},
   presentationRevision: {get: () => learnStore.getState().presentationRevision},
 });
@@ -109,8 +111,9 @@ const overviewRenderer = state.networkType === 'metro'
     transferLayer: elements.metroOverviewTransferLayer,
     lineStrip: elements.metroLineStrip,
     onRouteSelect: routeId => selectRoute(routeId),
+    onViewChange: updateOverviewIntro,
   })
-  : new OverviewRenderer({canvas: elements.canvas, stage: elements.stage});
+  : new OverviewRenderer({canvas: elements.canvas, stage: elements.stage, onViewChange: updateOverviewIntro});
 const focusRenderer = new FocusRenderer({
   svg: elements.svg,
   routeLayer: elements.routeLayer,
@@ -138,6 +141,7 @@ const experience = new LearnExperience({
   overviewRenderer,
   realMapRenderer,
   stretchController,
+  cameraMode: state.cameraMode,
   reducedMotion,
 });
 const navigationAdapter = {
@@ -164,6 +168,24 @@ const navigationController = new NavigationController({
     const route = overviewRenderer.nearestRoute(event.clientX, event.clientY);
     if (route) selectRoute(route.id);
   },
+  onBackgroundDoubleClick: () => {
+    if (!state.route || state.returning) return;
+    clearSelection({source: 'background-double-click'});
+  },
+  isInteractiveTarget: target => Boolean(target?.closest?.([
+    '.route-hit',
+    '.station-node',
+    '.metro-overview-route',
+    '.metro-overview-transfer',
+    '.target-station-beacon',
+    'button',
+    'a',
+    'input',
+    'select',
+    'textarea',
+    'label',
+    '[data-no-background-return]',
+  ].join(','))),
   onInteractionStart: source => {
     document.body.classList.add('is-map-navigating');
     document.body.classList.toggle('is-panning', source === 'pointer');
@@ -236,27 +258,40 @@ function routeMetaText() {
   return `${state.route.stops.length} 站 · ${transfer} 个多线路站 · 匹配 ${Math.round((state.route.score || 0) * 100)}%${estimated ? ` · ${estimated} 个估算站点` : ''}`;
 }
 
-function updateExperienceControls() {
-  elements.experienceSwitch.hidden = !state.allowExperienceOverride;
-  elements.experienceSwitch.querySelectorAll('[data-experience]').forEach(button => {
-    const applicable = button.dataset.experience === 'standard'
-      || (state.networkType === 'metro' && button.dataset.experience === 'metroFinal')
-      || (state.networkType === 'bus' && button.dataset.experience === 'busExperimental');
-    button.hidden = !applicable;
-    const active = button.dataset.experience === state.experienceProfile;
+function updateOverviewIntro({zoomRatio = 1, focused = false} = {}) {
+  const ratio = Math.max(.0001, Number(zoomRatio) || 1);
+  const progress = state.route || focused
+    ? 1
+    : overviewZoomProgress(1, 1 / ratio);
+  elements.app.style.setProperty('--overview-zoom-progress', progress.toFixed(4));
+  elements.app.style.setProperty('--overview-intro-opacity', Math.max(.04, 1 - progress * .96).toFixed(4));
+  elements.app.style.setProperty('--overview-intro-blur', `${(progress * 10).toFixed(2)}px`);
+  elements.app.style.setProperty('--overview-intro-scale', (1 + progress * .12).toFixed(4));
+  const hiddenByZoom = progress >= .72;
+  elements.app.classList.toggle('intro-zoom-obscured', hiddenByZoom);
+  elements.intro.toggleAttribute('inert', hiddenByZoom);
+  elements.intro.setAttribute('aria-hidden', String(hiddenByZoom));
+}
+
+function updateCameraModeControls() {
+  const visible = Boolean(state.route)
+    && state.viewMode === 'flat'
+    && state.allowExperienceOverride
+    && experience.has('cameraFollow');
+  elements.cameraModeSwitch.hidden = !visible;
+  elements.cameraModeSwitch.querySelectorAll('[data-camera-mode]').forEach(button => {
+    const active = button.dataset.cameraMode === state.cameraMode;
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
   });
 }
 
-async function setExperienceProfile(profile, {persist = false, reframe = true} = {}) {
+async function setExperienceProfile(profile, {reframe = true} = {}) {
   state.experienceProfile = experience.setProfile(profile);
-  if (persist) saveExperienceProfile(state.networkType, state.experienceProfile);
-  updateExperienceControls();
+  experience.setCameraMode(state.cameraMode);
+  updateCameraModeControls();
   if (!state.route || !reframe) return;
-  const frame = journeyFrame(state.journeyMotionRatio);
-  if (state.mode === 'timed' || state.mode === 'full') await experience.enterPractice(frame);
-  else await experience.enterRoute(frame);
+  await fitCurrentExperience({animate: true});
   renderDynamic();
   restorePracticeTypingFocus();
 }
@@ -265,16 +300,18 @@ function fitCurrentExperience({animate = true, forcePractice = null} = {}) {
   if (!state.route) return Promise.resolve(false);
   const practiceVisible = forcePractice ?? (state.mode === 'timed' || state.mode === 'full');
   const frame = journeyFrame(state.journeyMotionRatio);
-  if (experience.has('cameraFollow') || experience.has('routeStretch')) {
-    return focusRenderer.fitImmersive(frame.routeProgress, {
-      reverse: state.reverse,
-      strong: practiceVisible,
-      practiceVisible,
-      animate,
-      duration: animate ? 620 : 0,
-    });
+  return experience.reframe(frame, {practiceVisible, animate});
+}
+
+async function setCameraMode(mode) {
+  learnStore.dispatch({type: 'CAMERA_MODE_CHANGED', mode});
+  experience.setCameraMode(state.cameraMode);
+  updateCameraModeControls();
+  if (state.route && state.viewMode === 'flat') {
+    await fitCurrentExperience({animate: true});
+    renderDynamic();
   }
-  return focusRenderer.fitFullRoute({practiceVisible, animate, duration: animate ? 430 : 0});
+  restorePracticeTypingFocus();
 }
 
 function setActiveMode(mode) {
@@ -288,6 +325,7 @@ function updateAppClasses() {
   elements.app.classList.toggle('flat-map', Boolean(state.route) && state.viewMode === 'flat');
   elements.app.classList.toggle('animated-map', Boolean(state.route) && state.viewMode === 'animated');
   elements.app.classList.toggle('realistic-map', Boolean(state.route) && state.viewMode === 'real');
+  updateCameraModeControls();
 }
 
 function updateViewControls() {
@@ -312,7 +350,9 @@ async function setViewMode(mode) {
     realMapRenderer.hide();
     updateAppClasses();
     updateViewControls();
+    await fitCurrentExperience({animate: true});
     renderDynamic();
+    restorePracticeTypingFocus();
     return;
   }
   experience.suspendForManualNavigation();
@@ -352,6 +392,7 @@ function rebuildFocusScene({fit = true, animate = true} = {}) {
   if (fit && experience.has('routeStretch')) stretchController.apply(1);
   focusRenderer.setVehicleType(product.vehicle);
   experience.setProfile(state.experienceProfile);
+  experience.setCameraMode(state.cameraMode);
   renderDynamic();
   if (fit) fitCurrentExperience({animate});
 }
@@ -383,6 +424,7 @@ async function selectRoute(routeId, stationName = null) {
     overviewRenderer.view = {...overviewRenderer.homeView};
     overviewRenderer.draw();
     elements.intro.classList.add('hidden');
+    updateOverviewIntro({zoomRatio: 1, focused: true});
     elements.routeCard.classList.add('visible');
     elements.stationCard.classList.add('visible');
     elements.resultModal.classList.remove('visible');
@@ -402,8 +444,9 @@ async function selectRoute(routeId, stationName = null) {
   }
 }
 
-async function clearSelection() {
+async function clearSelection({source = 'explicit'} = {}) {
   if (!state.route || state.returning) return;
+  navigationController.cancelActiveInteraction();
   const token = ++state.loadingRouteToken;
   ++state.stationCompletionToken;
   state.returning = true;
@@ -427,10 +470,13 @@ async function clearSelection() {
   elements.intro.classList.remove('hidden');
   elements.routeCard.classList.remove('visible');
   elements.stationCard.classList.remove('visible');
+  elements.loading.classList.add('hidden');
+  elements.app.dataset.returnSource = source;
   state.returning = false;
   elements.app.classList.remove('returning');
   updateAppClasses();
   updateViewControls();
+  updateOverviewIntro({zoomRatio: 1, focused: false});
 }
 
 function selectStationByOriginalIndex(originalIndex) {
@@ -484,6 +530,12 @@ function renderCards() {
   }
 }
 
+function settleJourneyMotionWaiters(completed) {
+  const waiters = [...state.journeyMotionWaiters];
+  state.journeyMotionWaiters.clear();
+  waiters.forEach(resolve => resolve(completed));
+}
+
 function stopJourneyMotion(ratio = 0, key = null) {
   cancelAnimationFrame(state.journeyMotionFrame);
   state.journeyMotionFrame = 0;
@@ -491,6 +543,7 @@ function stopJourneyMotion(ratio = 0, key = null) {
   state.journeyMotionTarget = ratio;
   state.journeyMotionKey = key;
   state.journeyMotionLastAt = 0;
+  settleJourneyMotionWaiters(false);
 }
 
 function journeyFrame(typingRatio, overrides = {}) {
@@ -540,6 +593,8 @@ function stepJourneyMotion(now) {
   renderJourneyFrame(state.journeyMotionRatio);
   if (state.journeyMotionRatio !== state.journeyMotionTarget) {
     state.journeyMotionFrame = requestAnimationFrame(stepJourneyMotion);
+  } else {
+    settleJourneyMotionWaiters(true);
   }
 }
 
@@ -552,6 +607,12 @@ function syncJourneyMotion(targetRatio) {
     state.journeyMotionFrame = requestAnimationFrame(stepJourneyMotion);
   }
   return state.journeyMotionRatio;
+}
+
+function animateJourneyMotionTo(targetRatio) {
+  syncJourneyMotion(targetRatio);
+  if (state.journeyMotionRatio === state.journeyMotionTarget) return Promise.resolve(true);
+  return new Promise(resolve => state.journeyMotionWaiters.add(resolve));
 }
 
 function renderDynamic() {
@@ -669,10 +730,10 @@ function renderPractice(snapshot) {
   if (state.mode !== 'timed' && state.mode !== 'full') return;
   elements.practicePanel.classList.add('visible');
   const scheme = spellingLabel(state.spellingScheme);
-  $('#practiceKicker').textContent = state.mode === 'timed' ? `30 秒 · ${scheme} · 输入下一站` : `全线 · ${scheme} · 输入下一站`;
+  $('#practiceKicker').textContent = state.mode === 'timed' ? `30 秒 · ${scheme}` : `全线 · ${scheme}`;
   $('#practiceStation').textContent = snapshot.targetStation?.name || snapshot.currentStation?.name || '—';
   $('#practiceNext').textContent = snapshot.targetStation
-    ? `当前：${snapshot.currentStation?.name || '起点'} · 打完正好到站`
+    ? `从 ${snapshot.currentStation?.name || '起点'} 出发`
     : '已到达本线终点';
   $('#timeStat').textContent = state.mode === 'timed' ? snapshot.timeLeft : '∞';
   $('#stationStat').textContent = snapshot.completedStations;
@@ -693,7 +754,7 @@ async function handleTypingInput() {
   if (result.type === 'invalid') {
     elements.typingInput.value = result.value;
     feedback.className = 'typing-feedback bad';
-    feedback.textContent = '这个字符与下一站拼音不一致，请继续从高亮位置输入。';
+    feedback.textContent = '这个字符与目标拼音不一致，请继续从高亮位置输入。';
     const typingArea = elements.typingInput.closest('.typing-area');
     typingArea.classList.remove('typing-error');
     void typingArea.offsetWidth;
@@ -702,29 +763,30 @@ async function handleTypingInput() {
   }
   if (result.type === 'missing-target') {
     feedback.className = 'typing-feedback bad';
-    feedback.textContent = `下一站缺少${spellingLabel(state.spellingScheme)}，请先在校核中填写。`;
+    feedback.textContent = `目标站缺少${spellingLabel(state.spellingScheme)}，请先在校核中填写。`;
     return;
   }
   elements.typingInput.value = result.value;
   feedback.className = 'typing-feedback';
-  feedback.textContent = `继续输入，${product.movingNoun}会平滑驶向下一站。`;
+  feedback.textContent = `继续输入，${product.movingNoun}正平滑驶向目标站。`;
   if (result.type === 'complete') {
     const completionToken = ++state.stationCompletionToken;
     feedback.className = 'typing-feedback ok';
     feedback.textContent = '正确，正在平滑进站…';
     const station = practice.targetStation();
     audioPlayer.playStation(station).catch(() => {});
-    await new Promise(resolve => setTimeout(resolve, 430));
+    const arrivalFrame = journeyFrame(1, {forceCamera: true});
+    const arrived = await animateJourneyMotionTo(1);
     if (completionToken !== state.stationCompletionToken || practice.finished) return;
-    stopJourneyMotion(1, state.journeyMotionKey);
+    if (!arrived) return;
     renderJourneyFrame(1);
-    await experience.arrive(journeyFrame(1, {forceCamera: true}));
+    await experience.arrive(arrivalFrame);
     if (completionToken !== state.stationCompletionToken || practice.finished) return;
     const advanced = practice.advance();
     elements.typingInput.value = '';
     if (!advanced.finished) {
       feedback.className = 'typing-feedback';
-      feedback.textContent = '下一站，继续输入它的拼音。';
+      feedback.textContent = '继续输入目标站拼音。';
       elements.typingInput.focus();
     }
   }
@@ -910,10 +972,9 @@ function randomRoute() {
 
 // Controls
 document.querySelectorAll('.mode-button').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
-elements.experienceSwitch.querySelectorAll('[data-experience]').forEach(button => button.addEventListener('click', () => {
-  if (!state.allowExperienceOverride) return;
-  setExperienceProfile(button.dataset.experience, {persist: true});
-}));
+elements.cameraModeSwitch.querySelectorAll('[data-camera-mode]').forEach(button => {
+  button.addEventListener('click', () => setCameraMode(button.dataset.cameraMode));
+});
 $('#homeButton').addEventListener('click', clearSelection);
 $('#randomRouteButton').addEventListener('click', randomRoute);
 $('#previousDirectionButton').addEventListener('click', toggleReverse);
@@ -1064,7 +1125,8 @@ function configureProductUi() {
   elements.spellingScheme.value = state.spellingScheme;
   elements.inlineHintToggle.checked = state.inlineHint;
   elements.typingInput.closest('.typing-area').classList.toggle('inline-hint', state.inlineHint);
-  updateExperienceControls();
+  updateCameraModeControls();
+  updateOverviewIntro({zoomRatio: 1, focused: false});
 }
 
 function setupLayoutUpdates() {

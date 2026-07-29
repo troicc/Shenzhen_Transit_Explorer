@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#06101d">
   <title>深圳交通站名学习</title>
   <link rel="stylesheet" href="/static/css/navigation.css">
-  <link rel="stylesheet" href="/static/css/learn.css">
+  <link rel="stylesheet" href="/static/css/learn.css?v=5">
 </head>
 <body>
 <div class="app" id="app" data-experience="standard">
@@ -112,10 +112,10 @@
       <button class="mode-button" data-mode="timed">30 秒</button>
       <button class="mode-button" data-mode="full">全线</button>
     </nav>
-    <div class="experience-switch" id="experienceSwitch" aria-label="学习体验">
-      <button data-experience="standard" aria-pressed="false">标准体验</button>
-      <button data-experience="metroFinal" aria-pressed="false">Metro Final</button>
-      <button data-experience="busExperimental" aria-pressed="false">公交实验</button>
+    <div class="camera-mode-switch" id="cameraModeSwitch" aria-label="扁平动画镜头模式" hidden>
+      <span>镜头</span>
+      <button data-camera-mode="full" aria-pressed="false">全线视角</button>
+      <button data-camera-mode="follow" aria-pressed="false">跟车镜头</button>
     </div>
   </section>
 
@@ -174,7 +174,7 @@
 
   <aside class="station-card" id="stationCard">
     <div class="station-number" id="stationNumber">01</div>
-    <span class="eyebrow">NOW ARRIVING</span>
+    <span class="eyebrow" id="stationCardEyebrow">当前站点</span>
     <h2 id="stationName">—</h2>
     <p id="stationPinyin">拼音：—</p>
     <p id="stationJyutping">粤拼：待校核</p>
@@ -191,7 +191,7 @@
       <div class="practice-station">
         <span id="practiceKicker">输入普通话拼音</span>
         <strong id="practiceStation">—</strong>
-        <small id="practiceNext">下一站：—</small>
+        <small id="practiceNext">从 — 出发</small>
       </div>
       <div class="typing-area">
         <div class="pinyin-words" id="pinyinWords"></div>
@@ -271,6 +271,6 @@
   <div class="toast" id="toast"></div>
 </div>
 <script type="module" src="/static/js/navigation.js"></script>
-<script type="module" src="/static/js/learn/app.js?v=4"></script>
+<script type="module" src="/static/js/learn/app.js?v=5"></script>
 </body>
 </html>

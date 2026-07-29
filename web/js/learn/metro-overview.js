@@ -1,4 +1,5 @@
 import {bboxOf, clamp, pathD, pointSegmentDistance, svgEl} from './core.js?v=3';
+import {preserveOverviewZoom} from './view-progress.js';
 
 function unionBox(routes) {
   const points = routes.flatMap(route => route.path || []);
@@ -15,6 +16,7 @@ export class MetroSchematicOverviewRenderer {
     transferLayer,
     lineStrip,
     onRouteSelect,
+    onViewChange = () => {},
   }) {
     this.svg = svg;
     this.stage = stage;
@@ -24,6 +26,7 @@ export class MetroSchematicOverviewRenderer {
     this.transferLayer = transferLayer;
     this.lineStrip = lineStrip;
     this.onRouteSelect = onRouteSelect;
+    this.onViewChange = onViewChange;
     this.presentation = null;
     this.routeCache = [];
     this.routeMap = new Map();
@@ -196,6 +199,7 @@ export class MetroSchematicOverviewRenderer {
       button.classList.toggle('active', this.highlightId === button.dataset.routeId);
     });
     this.svg.classList.toggle('metro-route-focused', this.focused);
+    this.notifyViewChange();
   }
 
   setFlipped(flipped) {
@@ -219,11 +223,13 @@ export class MetroSchematicOverviewRenderer {
 
   fitHome() {
     if (!this.presentation) return;
-    this.fitBox(unionBox(this.routeCache), .055, false);
-    this.homeView = {...this.view};
+    const target = this.viewForBox(unionBox(this.routeCache), .055);
+    this.homeView = {...target};
+    this.view = {...target};
+    this.applyView();
   }
 
-  fitBox(box, padding = .08, animate = false) {
+  viewForBox(box, padding = .08) {
     const rectangle = this.stage.getBoundingClientRect();
     const [minX, minY, maxX, maxY] = box;
     let width = Math.max(80, maxX - minX) * (1 + padding * 2);
@@ -231,7 +237,11 @@ export class MetroSchematicOverviewRenderer {
     const aspect = rectangle.width / Math.max(1, rectangle.height);
     if (width / height < aspect) width = height * aspect;
     else height = width / aspect;
-    const target = {x: (minX + maxX - width) / 2, y: (minY + maxY - height) / 2, w: width, h: height};
+    return {x: (minX + maxX - width) / 2, y: (minY + maxY - height) / 2, w: width, h: height};
+  }
+
+  fitBox(box, padding = .08, animate = false) {
+    const target = this.viewForBox(box, padding);
     this.setView(target, {animate});
   }
 
@@ -251,16 +261,35 @@ export class MetroSchematicOverviewRenderer {
       grid.setAttribute('width', this.view.w);
       grid.setAttribute('height', this.view.h);
     }
+    this.notifyViewChange();
+  }
+
+  notifyViewChange() {
+    this.onViewChange({
+      view: {...this.view},
+      homeView: {...this.homeView},
+      zoomRatio: this.homeView.w / Math.max(.0001, this.view.w),
+      focused: this.focused,
+    });
   }
 
   resize() {
-    if (!this.presentation || this.focused) return;
+    if (!this.presentation) return;
     const rectangle = this.stage.getBoundingClientRect();
-    const centerX = this.view.x + this.view.w / 2;
-    const centerY = this.view.y + this.view.h / 2;
-    const height = this.view.w * rectangle.height / Math.max(1, rectangle.width);
-    this.view = {x: centerX - this.view.w / 2, y: centerY - height / 2, w: this.view.w, h: height};
-    this.homeView = {...this.view};
+    const previousView = {...this.view};
+    const previousHome = {...this.homeView};
+    const nextHome = this.viewForBox(unionBox(this.routeCache), .055);
+    this.homeView = {...nextHome};
+    if (this.focused) {
+      this.notifyViewChange();
+      return;
+    }
+    this.view = preserveOverviewZoom(
+      previousView,
+      previousHome,
+      nextHome,
+      rectangle.width / Math.max(1, rectangle.height),
+    );
     this.applyView();
     this.updateVisualScale();
   }

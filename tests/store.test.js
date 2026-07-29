@@ -37,6 +37,19 @@ test('switching map mode changes no route, direction or practice fields', () => 
   assert.equal(after.browseIndex, before.browseIndex);
 });
 
+test('camera mode is independent from route, practice and map state', () => {
+  const store = new LearnStore({cameraMode: 'follow'});
+  store.dispatch({type: 'ROUTE_SELECTED', route: {id: 'metro-1:forward'}});
+  store.dispatch({type: 'PRACTICE_STARTED', mode: 'full'});
+  store.dispatch({type: 'VIEW_CHANGED', mode: 'real'});
+  store.dispatch({type: 'CAMERA_MODE_CHANGED', mode: 'full'});
+  assert.equal(store.getState().cameraMode, 'full');
+  assert.equal(store.getState().practiceMode, 'full');
+  assert.equal(store.getState().viewMode, 'real');
+  store.dispatch({type: 'ROUTE_CLEARED'});
+  assert.equal(store.getState().cameraMode, 'full');
+});
+
 test('clearing a route preserves the loaded presentation revision only', () => {
   const store = new LearnStore();
   store.dispatch({type: 'PRESENTATION_LOADED', revision: 'metro-presentation-b'});
@@ -49,6 +62,7 @@ test('clearing a route preserves the loaded presentation revision only', () => {
     browseIndex: 0,
     practiceMode: 'overview',
     viewMode: 'flat',
+    cameraMode: 'full',
     broadcasting: false,
     presentationRevision: 'metro-presentation-b',
   });

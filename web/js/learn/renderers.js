@@ -3,11 +3,13 @@ import {
   pathSlice, routeColor, stationTravelPhase, stationVisualState, svgEl,
 } from './core.js?v=3';
 import {computeFocusView, layoutStationLabels} from './geometry.js';
+import {preserveOverviewZoom} from './view-progress.js';
 
 export class OverviewRenderer {
-  constructor({canvas, stage}) {
+  constructor({canvas, stage, onViewChange = () => {}}) {
     this.canvas = canvas;
     this.stage = stage;
+    this.onViewChange = onViewChange;
     this.ctx = canvas.getContext('2d', {alpha: true});
     this.overview = null;
     this.routeCache = [];
@@ -56,10 +58,19 @@ export class OverviewRenderer {
     this.canvas.style.width = `${rectangle.width}px`;
     this.canvas.style.height = `${rectangle.height}px`;
     if (this.overview) {
-      const centerX = this.view.x + this.view.w / 2;
-      const centerY = this.view.y + this.view.h / 2;
-      const height = this.view.w * rectangle.height / Math.max(1, rectangle.width);
-      this.view = {x: centerX - this.view.w / 2, y: centerY - height / 2, w: this.view.w, h: height};
+      const previousView = {...this.view};
+      const previousHome = {...this.homeView};
+      const world = this.overview.world;
+      const nextHome = this.viewForBox([0, 0, world.width, world.height], .045);
+      this.homeView = {...nextHome};
+      if (!this.focused) {
+        this.view = preserveOverviewZoom(
+          previousView,
+          previousHome,
+          nextHome,
+          rectangle.width / Math.max(1, rectangle.height),
+        );
+      }
     }
     this.draw();
   }
@@ -67,11 +78,13 @@ export class OverviewRenderer {
   fitHome() {
     if (!this.overview) return;
     const world = this.overview.world;
-    this.fitBox([0, 0, world.width, world.height], .045, false);
-    this.homeView = {...this.view};
+    const target = this.viewForBox([0, 0, world.width, world.height], .045);
+    this.homeView = {...target};
+    this.view = {...target};
+    this.draw();
   }
 
-  fitBox(box, padding = .12, animate = true) {
+  viewForBox(box, padding = .12) {
     const rectangle = this.stage.getBoundingClientRect();
     let [minX, minY, maxX, maxY] = box;
     let width = Math.max(80, maxX - minX) * (1 + padding * 2);
@@ -79,7 +92,11 @@ export class OverviewRenderer {
     const aspect = rectangle.width / Math.max(1, rectangle.height);
     if (width / height < aspect) width = height * aspect;
     else height = width / aspect;
-    const target = {x: (minX + maxX - width) / 2, y: (minY + maxY - height) / 2, w: width, h: height};
+    return {x: (minX + maxX - width) / 2, y: (minY + maxY - height) / 2, w: width, h: height};
+  }
+
+  fitBox(box, padding = .12, animate = true) {
+    const target = this.viewForBox(box, padding);
     if (animate) this.animateView(target);
     else { this.view = target; this.draw(); }
   }
@@ -160,6 +177,12 @@ export class OverviewRenderer {
   }
 
   draw() {
+    this.onViewChange({
+      view: {...this.view},
+      homeView: {...this.homeView},
+      zoomRatio: this.homeView.w / Math.max(.0001, this.view.w),
+      focused: this.focused,
+    });
     cancelAnimationFrame(this.drawFrame);
     this.drawFrame = requestAnimationFrame(() => this.drawNow());
   }
@@ -208,6 +231,11 @@ export function immersiveScaleFactor(stationCount, strong = false) {
   return clamp(base + 8 / Math.max(2, stationCount), .50, .72);
 }
 
+export function visualScaleBucket(unitPerPixel, step = 1.05) {
+  const unit = Math.max(.0001, Number(unitPerPixel) || 0);
+  return Math.round(Math.log(unit) / Math.log(Math.max(1.001, Number(step) || 1.05)));
+}
+
 export function focusStaticSceneKey({
   currentOriginalIndex,
   nextOriginalIndex,
@@ -222,7 +250,7 @@ export function focusStaticSceneKey({
     reverse ? 'reverse' : 'forward',
     allLabels ? 'all-labels' : 'priority-labels',
     journeyActive ? 'journey' : 'browse',
-    Number(unitPerPixel || 0).toFixed(6),
+    `scale-${visualScaleBucket(unitPerPixel)}`,
   ].join(':');
 }
 
@@ -247,8 +275,17 @@ export class FocusRenderer {
     this.lastDynamic = null;
     this.lastFollowKey = null;
     this.lastStaticSceneKey = null;
+    this.lastRouteProgress = null;
     this.vehicleScale = 1;
     this.vehicleFacingNode = train.querySelector('.vehicle-facing');
+    this.resetEffectLayers();
+  }
+
+  resetEffectLayers() {
+    if (!this.effectLayer) return;
+    this.staticEffectLayer = svgEl('g', {class: 'static-effect-layer'});
+    this.transientEffectLayer = svgEl('g', {class: 'transient-effect-layer'});
+    this.effectLayer.replaceChildren(this.staticEffectLayer, this.transientEffectLayer);
   }
 
   clear() {
@@ -259,11 +296,12 @@ export class FocusRenderer {
     this.routeLayer.innerHTML = '';
     this.stationLayer.innerHTML = '';
     this.labelLayer.innerHTML = '';
-    if (this.effectLayer) this.effectLayer.innerHTML = '';
+    this.resetEffectLayers();
     this.train.setAttribute('opacity', '0');
     this.lastDynamic = null;
     this.lastFollowKey = null;
     this.lastStaticSceneKey = null;
+    this.lastRouteProgress = null;
   }
 
   setRoute(route, geometry, color) {
@@ -283,9 +321,10 @@ export class FocusRenderer {
     this.routeLayer.innerHTML = '';
     this.stationLayer.innerHTML = '';
     this.labelLayer.innerHTML = '';
-    if (this.effectLayer) this.effectLayer.innerHTML = '';
+    this.resetEffectLayers();
     this.lastFollowKey = null;
     this.lastStaticSceneKey = null;
+    this.lastRouteProgress = null;
 
     const data = pathD(geometry.path);
     const base = svgEl('path', {d: data, class: 'route-base'});
@@ -322,6 +361,14 @@ export class FocusRenderer {
       if (!point) return;
       item.circle.setAttribute('cx', point[0]);
       item.circle.setAttribute('cy', point[1]);
+    });
+    this.transientEffectLayer?.querySelectorAll('.arrival-pulse-group[data-station-index]').forEach(group => {
+      const point = geometry.stationPoints[Number(group.dataset.stationIndex)];
+      if (!point) return;
+      group.querySelectorAll('circle').forEach(circle => {
+        circle.setAttribute('cx', point[0]);
+        circle.setAttribute('cy', point[1]);
+      });
     });
     if (this.lastDynamic) this.renderDynamic(this.lastDynamic);
     return true;
@@ -465,7 +512,35 @@ export class FocusRenderer {
       grid.setAttribute('x', this.view.x); grid.setAttribute('y', this.view.y);
       grid.setAttribute('width', this.view.w); grid.setAttribute('height', this.view.h);
     }
-    if (this.lastDynamic) this.renderDynamic(this.lastDynamic);
+    this.refreshViewDependentScene();
+  }
+
+  visualUnit() {
+    const rectangle = this.stage.getBoundingClientRect();
+    return this.view.w / Math.max(1, rectangle.width);
+  }
+
+  refreshStaticScene(dynamic, unitPerPixel) {
+    const staticKey = focusStaticSceneKey({...dynamic, unitPerPixel});
+    if (staticKey === this.lastStaticSceneKey) return false;
+    this.renderStaticScene({...dynamic, unitPerPixel});
+    this.lastStaticSceneKey = staticKey;
+    return true;
+  }
+
+  positionVehicle(routeProgress, unitPerPixel) {
+    const point = pointAtProgress(this.geometry.path, routeProgress);
+    if (!point) return;
+    this.train.setAttribute('transform', `translate(${point[0]} ${point[1]}) scale(${unitPerPixel * this.vehicleScale})`);
+    this.vehicleFacingNode?.removeAttribute('transform');
+    this.train.setAttribute('opacity', '1');
+  }
+
+  refreshViewDependentScene() {
+    if (!this.lastDynamic || !this.geometry) return;
+    const unitPerPixel = this.visualUnit();
+    this.refreshStaticScene(this.lastDynamic, unitPerPixel);
+    if (Number.isFinite(this.lastRouteProgress)) this.positionVehicle(this.lastRouteProgress, unitPerPixel);
   }
 
   panByPixels(dx, dy) {
@@ -493,18 +568,17 @@ export class FocusRenderer {
   endManualNavigation() {}
 
   showArrivalPulse(originalStationIndex) {
-    if (!this.effectLayer || !this.geometry) return false;
+    if (!this.transientEffectLayer || !this.geometry) return false;
     const point = this.geometry.stationPoints[originalStationIndex];
     if (!point) return false;
-    const rectangle = this.stage.getBoundingClientRect();
-    const unitPerPixel = this.view.w / Math.max(1, rectangle.width);
+    const unitPerPixel = this.visualUnit();
     const group = svgEl('g', {class: 'arrival-pulse-group', 'data-station-index': originalStationIndex});
     group.append(
       svgEl('circle', {class: 'arrival-pulse outer', cx: point[0], cy: point[1], r: 7 * unitPerPixel}),
       svgEl('circle', {class: 'arrival-pulse inner', cx: point[0], cy: point[1], r: 6 * unitPerPixel}),
       svgEl('circle', {class: 'arrival-flash', cx: point[0], cy: point[1], r: 5 * unitPerPixel}),
     );
-    this.effectLayer.append(group);
+    this.transientEffectLayer.replaceChildren(group);
     setTimeout(() => group.remove(), 1120);
     return true;
   }
@@ -512,31 +586,13 @@ export class FocusRenderer {
   renderDynamic({currentOriginalIndex, nextOriginalIndex, reverse, typingRatio, allLabels, journeyActive = false}) {
     if (!this.route || !this.geometry) return;
     this.lastDynamic = {currentOriginalIndex, nextOriginalIndex, reverse, typingRatio, allLabels, journeyActive};
-    const rectangle = this.stage.getBoundingClientRect();
-    const unitPerPixel = this.view.w / Math.max(1, rectangle.width);
-    const staticKey = focusStaticSceneKey({
-      currentOriginalIndex,
-      nextOriginalIndex,
-      reverse,
-      allLabels,
-      journeyActive,
-      unitPerPixel,
-    });
-    if (staticKey !== this.lastStaticSceneKey) {
-      this.renderStaticScene({
-        currentOriginalIndex,
-        nextOriginalIndex,
-        reverse,
-        allLabels,
-        journeyActive,
-        unitPerPixel,
-      });
-      this.lastStaticSceneKey = staticKey;
-    }
+    const unitPerPixel = this.visualUnit();
+    this.refreshStaticScene(this.lastDynamic, unitPerPixel);
 
     const startProgress = this.geometry.stationProgresses[currentOriginalIndex] ?? 0;
     const nextProgress = nextOriginalIndex == null ? startProgress : (this.geometry.stationProgresses[nextOriginalIndex] ?? startProgress);
     const actualProgress = lerp(startProgress, nextProgress, typingRatio || 0);
+    this.lastRouteProgress = actualProgress;
     this.train.dataset.motionRatio = Number(typingRatio || 0).toFixed(4);
     this.train.dataset.routeProgress = Number(actualProgress).toFixed(6);
     const traveledPath = reverse
@@ -544,10 +600,7 @@ export class FocusRenderer {
       : pathSlice(this.geometry.path, 0, actualProgress);
     this.progressPath.setAttribute('d', pathD(traveledPath));
 
-    const point = pointAtProgress(this.geometry.path, actualProgress);
-    this.train.setAttribute('transform', `translate(${point[0]} ${point[1]}) scale(${unitPerPixel * this.vehicleScale})`);
-    this.vehicleFacingNode?.removeAttribute('transform');
-    this.train.setAttribute('opacity', '1');
+    this.positionVehicle(actualProgress, unitPerPixel);
   }
 
   renderStaticScene({currentOriginalIndex, nextOriginalIndex, reverse, allLabels, journeyActive, unitPerPixel}) {
@@ -594,40 +647,23 @@ export class FocusRenderer {
       this.labelLayer.append(text);
     });
 
-    if (this.effectLayer) {
-      this.effectLayer.querySelectorAll('.current-station-beacon').forEach(node => node.remove());
-      const targetIndex = journeyActive && nextOriginalIndex != null ? nextOriginalIndex : currentOriginalIndex;
-      const target = this.geometry.stationPoints[targetIndex];
-      const stop = this.route.stops[targetIndex];
-      if (target && stop) {
+    if (this.staticEffectLayer) {
+      this.staticEffectLayer.replaceChildren();
+      const targetIndex = journeyActive && Number.isInteger(nextOriginalIndex) ? nextOriginalIndex : null;
+      const target = targetIndex == null ? null : this.geometry.stationPoints[targetIndex];
+      if (target) {
         const group = svgEl('g', {
-          class: 'current-station-beacon',
+          class: 'target-station-beacon',
           'data-target-index': targetIndex,
-          'data-target-role': journeyActive ? 'next-station' : 'current-station',
+          'data-target-role': 'next-station',
         });
         group.append(
-          svgEl('circle', {class: 'current-target-ring secondary', cx: target[0], cy: target[1], r: 14 * unitPerPixel}),
-          svgEl('circle', {class: 'current-target-ring', cx: target[0], cy: target[1], r: 9 * unitPerPixel}),
-          svgEl('circle', {class: 'current-target-dot', cx: target[0], cy: target[1], r: 3.3 * unitPerPixel}),
+          svgEl('circle', {class: 'target-ring secondary', cx: target[0], cy: target[1], r: 14 * unitPerPixel}),
+          svgEl('circle', {class: 'target-ring', cx: target[0], cy: target[1], r: 9 * unitPerPixel}),
+          svgEl('circle', {class: 'target-dot', cx: target[0], cy: target[1], r: 3.3 * unitPerPixel}),
         );
-        const targetLabel = svgEl('text', {
-          class: 'current-target-label',
-          x: target[0] + 12 * unitPerPixel,
-          y: target[1] - 12 * unitPerPixel,
-          'font-size': 11 * unitPerPixel,
-        });
-        targetLabel.textContent = journeyActive ? `下一站 · ${stop.name}` : stop.name;
-        group.append(targetLabel);
-        this.effectLayer.append(group);
+        this.staticEffectLayer.append(group);
       }
-    }
-
-    this.stationLayer.querySelectorAll('.station-ring').forEach(node => node.remove());
-    const currentNode = this.stationNodes[currentOriginalIndex]?.group;
-    if (currentNode) {
-      const center = this.geometry.stationPoints[currentOriginalIndex];
-      const ring = svgEl('circle', {class: 'station-ring', cx: center[0], cy: center[1], r: 8 * unitPerPixel});
-      currentNode.prepend(ring);
     }
   }
 }

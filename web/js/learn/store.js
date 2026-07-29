@@ -1,5 +1,6 @@
 const PRACTICE_MODES = new Set(['overview', 'timed', 'full']);
 const VIEW_MODES = new Set(['flat', 'animated', 'real']);
+const CAMERA_MODES = new Set(['full', 'follow']);
 
 export const INITIAL_LEARN_STATE = Object.freeze({
   route: null,
@@ -7,6 +8,7 @@ export const INITIAL_LEARN_STATE = Object.freeze({
   browseIndex: 0,
   practiceMode: 'overview',
   viewMode: 'flat',
+  cameraMode: 'full',
   broadcasting: false,
   presentationRevision: null,
 });
@@ -24,7 +26,12 @@ export function reduceLearnState(state, action) {
         broadcasting: false,
       };
     case 'ROUTE_CLEARED':
-      return {...state, ...INITIAL_LEARN_STATE, presentationRevision: state.presentationRevision};
+      return {
+        ...state,
+        ...INITIAL_LEARN_STATE,
+        cameraMode: state.cameraMode,
+        presentationRevision: state.presentationRevision,
+      };
     case 'BROWSE_CHANGED':
       return {...state, browseIndex: Math.max(0, Number(action.index) || 0)};
     case 'DIRECTION_CHANGED':
@@ -46,6 +53,8 @@ export function reduceLearnState(state, action) {
       return {...state, practiceMode: 'overview'};
     case 'VIEW_CHANGED':
       return {...state, viewMode: VIEW_MODES.has(action.mode) ? action.mode : 'flat'};
+    case 'CAMERA_MODE_CHANGED':
+      return {...state, cameraMode: CAMERA_MODES.has(action.mode) ? action.mode : state.cameraMode};
     case 'BROADCAST_CHANGED':
       return {...state, broadcasting: Boolean(action.broadcasting)};
     case 'PRESENTATION_LOADED':

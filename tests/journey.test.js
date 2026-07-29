@@ -86,3 +86,24 @@ test('renderer extras cannot override journey business semantics', () => {
   assert.equal(frame.targetOriginalIndex, 1);
   assert.equal(frame.forceCamera, true);
 });
+
+test('arriving frames retain the departure station and target in both directions', () => {
+  const route = {id: 'metro-2', stops: [{name: '甲'}, {name: '乙'}, {name: '丙'}, {name: '丁'}]};
+  const geometry = {stationProgresses: [0, .3, .7, 1]};
+  const forward = createJourneyFrame({
+    network: 'metro', route, geometry, direction: 'forward',
+    arrivedIndex: 1, targetIndex: 2, typingRatio: 1, journeyActive: true, phase: 'arriving',
+  });
+  const reverse = createJourneyFrame({
+    network: 'metro', route, geometry, direction: 'reverse',
+    arrivedIndex: 1, targetIndex: 2, typingRatio: 1, journeyActive: true, phase: 'arriving',
+  });
+  assert.deepEqual(
+    [forward.arrivedOriginalIndex, forward.targetOriginalIndex, forward.phase],
+    [1, 2, 'arriving'],
+  );
+  assert.deepEqual(
+    [reverse.arrivedOriginalIndex, reverse.targetOriginalIndex, reverse.phase],
+    [2, 1, 'arriving'],
+  );
+});

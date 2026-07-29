@@ -8,6 +8,11 @@ import {completionSpring} from './route-stretch.js';
 
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
+export function resolveArrivalPulseIndex(frame) {
+  if (frame?.phase !== 'arriving') return null;
+  return Number.isInteger(frame?.targetOriginalIndex) ? frame.targetOriginalIndex : null;
+}
+
 export class LearnExperience {
   constructor({
     profile,
@@ -18,6 +23,7 @@ export class LearnExperience {
     overviewRenderer,
     realMapRenderer,
     stretchController,
+    cameraMode = 'follow',
     reducedMotion = false,
   } = {}) {
     this.network = network;
@@ -34,6 +40,7 @@ export class LearnExperience {
     this.returnToken = 0;
     this.coverFlipped = false;
     this.lineState = 'overview';
+    this.cameraMode = cameraMode === 'full' ? 'full' : 'follow';
     this.setProfile(profile);
     this.setCoverFlipped(this.network === 'metro' && this.capabilities.coverFlip);
   }
@@ -58,6 +65,23 @@ export class LearnExperience {
   }
 
   has(capability) { return Boolean(this.capabilities?.[capability]); }
+
+  setCameraMode(mode) {
+    this.cameraMode = mode === 'full' ? 'full' : 'follow';
+    if (this.cameraMode === 'full') {
+      this.camera?.stop();
+      this.lastJourneyProgress = null;
+    }
+    return this.cameraMode;
+  }
+
+  usesFollowCamera(frame) {
+    return Boolean(
+      this.capabilities?.cameraFollow
+      && this.cameraMode === 'follow'
+      && frame?.mapMode === 'flat'
+    );
+  }
 
   setFace(face) {
     if (this.flipScene) this.flipScene.dataset.face = face;
@@ -92,41 +116,65 @@ export class LearnExperience {
       this.appElement?.classList.add('route-stretching');
       await Promise.all([
         this.stretchController?.animateTo?.(1, {duration: 920}) || Promise.resolve(),
-        this.focusRenderer.fitImmersive(frame?.routeProgress || 0, {
-          reverse: frame?.direction === 'reverse', strong, geometry: targetGeometry, animate: true, duration: 920,
-        }),
+        this.usesFollowCamera(frame)
+          ? this.focusRenderer.fitImmersive(frame?.routeProgress || 0, {
+            reverse: frame?.direction === 'reverse', strong, geometry: targetGeometry, animate: true, duration: 920,
+          })
+          : this.focusRenderer.fitFullRoute({
+            practiceVisible: false, geometry: targetGeometry, animate: true, duration: 920,
+          }),
       ]);
       this.appElement?.classList.remove('route-stretching');
     } else {
       await this.stretchController?.reset?.({duration: 0});
       await this.focusRenderer.fitFullRoute({practiceVisible: false, animate: true, duration: 430});
     }
+    if (token !== this.returnToken) return false;
     this.setLineState('selected');
-    return token === this.returnToken;
+    return true;
   }
 
   async enterPractice(frame) {
     this.lastJourneyProgress = Number(frame?.routeProgress) || 0;
-    if (!this.capabilities.cameraFollow) {
-      await this.focusRenderer.fitFullRoute({practiceVisible: true, animate: true, duration: 430});
-      return;
-    }
-    const targetGeometry = this.capabilities.routeStretch
-      ? this.stretchController?.geometryAt?.(1) || this.focusRenderer.geometry
-      : this.focusRenderer.geometry;
     if (this.capabilities.routeStretch && this.stretchController?.progress < .999) {
       await this.stretchController.animateTo(1, {duration: 620});
     }
-    await this.focusRenderer.fitImmersive(frame?.routeProgress || 0, {
-      reverse: frame?.direction === 'reverse', strong: true, practiceVisible: true,
-      geometry: targetGeometry, animate: true, duration: 720,
+    await this.reframe(frame, {practiceVisible: true, animate: true});
+  }
+
+  async reframe(frame, {practiceVisible = false, animate = true} = {}) {
+    const targetGeometry = this.focusRenderer?.geometry;
+    if (this.usesFollowCamera(frame)) {
+      await this.focusRenderer.fitImmersive(frame?.routeProgress || 0, {
+        reverse: frame?.direction === 'reverse',
+        strong: practiceVisible || this.network === 'metro',
+        practiceVisible,
+        geometry: targetGeometry,
+        animate,
+        duration: animate ? 720 : 0,
+      });
+      if (frame?.journeyActive) {
+        this.camera?.resume();
+        this.camera?.update({
+          progress: frame?.routeProgress || 0,
+          reverse: frame?.direction === 'reverse',
+          force: true,
+        });
+      }
+      return true;
+    }
+    this.camera?.stop();
+    await this.focusRenderer.fitFullRoute({
+      practiceVisible,
+      geometry: targetGeometry,
+      animate,
+      duration: animate ? 520 : 0,
     });
-    this.camera?.resume();
-    this.camera?.update({progress: frame?.routeProgress || 0, reverse: frame?.direction === 'reverse', force: true});
+    return true;
   }
 
   updateJourney(frame) {
-    if (!this.capabilities.cameraFollow || frame?.mapMode !== 'flat' || !frame?.journeyActive) return;
+    if (!this.usesFollowCamera(frame) || !frame?.journeyActive) return;
     const progress = Number(frame.routeProgress) || 0;
     const moved = this.lastJourneyProgress == null
       || Math.abs(progress - this.lastJourneyProgress) > 1e-7
@@ -143,21 +191,21 @@ export class LearnExperience {
   }
 
   async arrive(frame) {
-    if (!this.capabilities.arrivalPulse) return;
-    const index = frame?.targetOriginalIndex
-      ?? frame?.arrivedOriginalIndex
-      ?? frame?.currentOriginalIndex;
+    if (!this.capabilities.arrivalPulse) return false;
+    const index = resolveArrivalPulseIndex(frame);
+    if (index == null) return false;
     this.focusRenderer.showArrivalPulse(index);
-    if (frame?.mapMode === 'flat') {
+    if (this.usesFollowCamera(frame)) {
       this.camera?.update({progress: frame.routeProgress, reverse: frame.direction === 'reverse', force: true});
     }
     await wait(this.reducedMotion ? 60 : 170);
+    return true;
   }
 
-  leavePractice() {
+  leavePractice(frame) {
     this.lastJourneyProgress = null;
     this.camera?.stop();
-    return this.focusRenderer.fitFullRoute({practiceVisible: false, animate: true, duration: 560});
+    return this.reframe(frame, {practiceVisible: false, animate: true});
   }
 
   async completeLine(frame) {

@@ -11,7 +11,7 @@ import {
 } from '../web/js/learn/core.js';
 import {computeFocusView} from '../web/js/learn/geometry.js';
 import {routeGeometryCacheKey} from '../web/js/learn/geometry.js';
-import {focusStaticSceneKey} from '../web/js/learn/renderers.js';
+import {focusStaticSceneKey, visualScaleBucket} from '../web/js/learn/renderers.js';
 import {restoreTypingFocus, shouldRestoreTypingFocus} from '../web/js/learn/typing-focus.js';
 
 test('travelIndex follows the selected direction', () => {
@@ -114,7 +114,7 @@ test('geometry cache keys include presentation revision and every display dimens
   assert.match(first, /metro-1:reverse:reverse:schematic:balanced$/);
 });
 
-test('typing ratio does not invalidate static stations and labels', () => {
+test('typing, camera pan and small zooms do not rebuild static stations and labels', () => {
   const base = {
     currentOriginalIndex: 2,
     nextOriginalIndex: 3,
@@ -125,9 +125,13 @@ test('typing ratio does not invalidate static stations and labels', () => {
   };
   const first = focusStaticSceneKey({...base, typingRatio: .1});
   const typed = focusStaticSceneKey({...base, typingRatio: .8});
+  const sameBucket = focusStaticSceneKey({...base, unitPerPixel: 1.26});
   const arrived = focusStaticSceneKey({...base, currentOriginalIndex: 3, nextOriginalIndex: 4});
   const zoomed = focusStaticSceneKey({...base, unitPerPixel: 1.4});
   assert.equal(first, typed);
+  assert.equal(first, sameBucket);
   assert.notEqual(first, arrived);
   assert.notEqual(first, zoomed);
+  assert.equal(visualScaleBucket(1.25), visualScaleBucket(1.26));
+  assert.notEqual(visualScaleBucket(1.25), visualScaleBucket(1.4));
 });

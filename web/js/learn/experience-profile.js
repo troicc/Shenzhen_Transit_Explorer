@@ -48,21 +48,14 @@ export function experienceCapabilities(profile, network) {
   return EXPERIENCE_PRESETS[normalized];
 }
 
-function safeStorageRead(storage, key) {
-  try { return storage?.getItem?.(key); } catch (_) { return null; }
-}
-
 export function resolveExperienceProfile({
   network,
   runtime,
   search = typeof window === 'undefined' ? '' : window.location.search,
-  storage = typeof window === 'undefined' ? null : window.localStorage,
 } = {}) {
   const params = new URLSearchParams(search || '');
-  const storageKey = `transit.learn.experience.${network}`;
   const candidates = [
     params.get('experience'),
-    safeStorageRead(storage, storageKey),
     runtime?.learnExperience?.defaults?.[network],
     fallbackExperienceProfile(network),
   ];

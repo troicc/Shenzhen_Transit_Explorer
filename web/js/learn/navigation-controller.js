@@ -9,6 +9,8 @@ export class NavigationController {
     enabled = () => true,
     isFlipped = () => false,
     onTap = () => {},
+    onBackgroundDoubleClick = () => {},
+    isInteractiveTarget = () => false,
     onInteractionStart = () => {},
     onInteractionEnd = () => {},
     requestFrame = callback => requestAnimationFrame(callback),
@@ -21,6 +23,8 @@ export class NavigationController {
     this.enabled = enabled;
     this.isFlipped = isFlipped;
     this.onTap = onTap;
+    this.onBackgroundDoubleClick = onBackgroundDoubleClick;
+    this.isInteractiveTarget = isInteractiveTarget;
     this.onInteractionStart = onInteractionStart;
     this.onInteractionEnd = onInteractionEnd;
     this.requestFrame = requestFrame;
@@ -43,6 +47,7 @@ export class NavigationController {
       pointermove: event => this.handlePointerMove(event),
       pointerup: event => this.handlePointerEnd(event),
       pointercancel: event => this.handlePointerEnd(event, true),
+      dblclick: event => this.handleDoubleClick(event),
       wheel: event => this.handleWheel(event),
       gesturestart: event => this.handleGestureStart(event),
       gesturechange: event => this.handleGestureChange(event),
@@ -128,6 +133,15 @@ export class NavigationController {
     this.pointer = null;
     if (pointer.moved) this.scheduleEnd(80);
     else if (!cancelled) this.onTap(event);
+  }
+
+  handleDoubleClick(event) {
+    if (!this.enabled() || !this.adapter()) return;
+    if (this.pointer?.moved || this.isInteractiveTarget(event?.target)) return;
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    this.cancelActiveInteraction();
+    this.onBackgroundDoubleClick(event);
   }
 
   resetWheel() {
@@ -218,17 +232,23 @@ export class NavigationController {
     this.scheduleEnd(78);
   }
 
-  destroy() {
-    if (this.target?.removeEventListener) {
-      for (const [type, handler] of Object.entries(this.handlers)) this.target.removeEventListener(type, handler);
-    }
+  cancelActiveInteraction() {
+    if (this.endTimer) this.clearTimer(this.endTimer);
     if (this.wheelFrame) this.cancelFrame(this.wheelFrame);
     if (this.gestureFrame) this.cancelFrame(this.gestureFrame);
+    this.endTimer = 0;
     this.wheelFrame = 0;
     this.gestureFrame = 0;
     this.pointer = null;
     this.gesture = null;
     this.resetWheel();
     this.finish();
+  }
+
+  destroy() {
+    if (this.target?.removeEventListener) {
+      for (const [type, handler] of Object.entries(this.handlers)) this.target.removeEventListener(type, handler);
+    }
+    this.cancelActiveInteraction();
   }
 }

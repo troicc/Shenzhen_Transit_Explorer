@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 
 import {
   experienceCapabilities,
@@ -19,11 +20,11 @@ function storage(initial = {}) {
   };
 }
 
-test('experience resolution follows URL, storage, runtime, then network fallback', () => {
+test('experience resolution follows debug URL, runtime, then network fallback', () => {
   const runtime = {learnExperience: {defaults: {bus: 'immersive', metro: 'standard'}}};
   const local = storage({'transit.learn.experience.bus': 'standard'});
   assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: local, search: '?experience=immersive'}), 'busExperimental');
-  assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: local, search: ''}), 'standard');
+  assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: local, search: ''}), 'busExperimental');
   assert.equal(resolveExperienceProfile({network: 'bus', runtime, storage: storage(), search: ''}), 'busExperimental');
   assert.equal(resolveExperienceProfile({network: 'bus', runtime: {}, storage: storage(), search: ''}), 'standard');
   assert.equal(resolveExperienceProfile({network: 'metro', runtime: {}, storage: storage(), search: ''}), 'metroFinal');
@@ -50,4 +51,11 @@ test('legacy immersive values migrate to network-specific capability presets', (
 test('runtime can hide user-facing experience controls', () => {
   assert.equal(userExperienceOverrideAllowed({learnExperience: {allowUserOverride: false}}), false);
   assert.equal(userExperienceOverrideAllowed({}), true);
+});
+
+test('internal Learn exposes camera preference instead of capability profile names', () => {
+  const html = readFileSync(new URL('../web/pages/learn.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /<button[^>]+data-experience=/);
+  assert.match(html, /data-camera-mode="full"[^>]*>全线视角/);
+  assert.match(html, /data-camera-mode="follow"[^>]*>跟车镜头/);
 });

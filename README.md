@@ -230,10 +230,10 @@ cp data/metro_schematic_layout.json var/metro/layout.json
 
 这些行为同时由内部 Learn 测试和公开运行时测试覆盖。
 
-## 学习体验模式
+## 学习体验与镜头模式
 
 公交和地铁共用一套 Learn 状态机、Practice Engine、Experience Controller、镜头控制器和
-Renderer 合同，但可采用不同的体验 Profile：
+Renderer 合同。内部 Learn 的 Experience Profile 是产品能力包，不再作为普通用户开关：
 
 | Profile | 说明 |
 |---|---|
@@ -255,14 +255,19 @@ http://127.0.0.1:8000/bus/learn
 http://127.0.0.1:8000/metro/learn
 ```
 
-页面顶部只显示当前网络可用的 Profile，并分别保存到：
+扁平动画在当前 Profile 支持镜头跟随时，只向用户显示两种镜头偏好：
 
 ```text
-localStorage["transit.learn.experience.bus"]
-localStorage["transit.learn.experience.metro"]
+全线视角
+跟车镜头
 ```
 
-URL 可为本次访问临时指定 Profile，且优先于 LocalStorage 和服务端默认值：
+切换镜头不会关闭 Metro Final 的封面翻转、真实坐标拉伸、到站反馈或完成回弹；切换到
+动画地图、真实地图时镜头开关隐藏，线路、方向和练习进度保持不变。Metro 默认跟车镜头，
+Bus 默认全线视角，清除或切换线路不会重置该偏好。
+
+Profile 仍保留给运行时配置、兼容迁移和内部调试。URL 可为本次访问临时指定 Profile，且
+优先于服务端默认值；旧版页面写入的 LocalStorage Profile 不再影响普通页面：
 
 ```text
 http://127.0.0.1:8000/bus/learn?experience=busExperimental
@@ -274,7 +279,7 @@ http://127.0.0.1:8000/metro/learn?experience=standard
 ```dotenv
 TRANSIT_LEARN_EXPERIENCE_BUS=standard
 TRANSIT_LEARN_EXPERIENCE_METRO=metroFinal
-TRANSIT_LEARN_ALLOW_EXPERIENCE_OVERRIDE=true
+TRANSIT_LEARN_ALLOW_EXPERIENCE_OVERRIDE=true  # 是否显示可用的用户镜头偏好
 ```
 
 只接受 `standard`、`metroFinal` 和 `busExperimental`；旧配置 `immersive` 会按网络迁移为
