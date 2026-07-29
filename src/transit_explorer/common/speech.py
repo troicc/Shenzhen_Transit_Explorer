@@ -2,7 +2,7 @@
 
 Safari does not always expose every installed macOS voice through the Web
 Speech API.  The internal server can still use the same installed voice via
-``/usr/bin/say`` and return browser-playable AAC audio.
+``/usr/bin/say`` and return browser-playable PCM/WAV audio.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def cantonese_voice_name() -> str:
 
 @lru_cache(maxsize=256)
 def synthesize_cantonese(text: str) -> CantoneseAudio:
-    """Synthesize short text with an installed Cantonese voice as AAC/M4A."""
+    """Synthesize short text with an installed Cantonese voice as PCM/WAV."""
 
     normalized = str(text).strip()
     if not normalized:
@@ -88,7 +88,7 @@ def synthesize_cantonese(text: str) -> CantoneseAudio:
         raise ValueError("朗读文本不能超过 120 个字符")
 
     voice = cantonese_voice_name()
-    with tempfile.NamedTemporaryFile(prefix="transit-cantonese-", suffix=".m4a", delete=False) as handle:
+    with tempfile.NamedTemporaryFile(prefix="transit-cantonese-", suffix=".wav", delete=False) as handle:
         output_path = Path(handle.name)
     try:
         try:
@@ -101,7 +101,8 @@ def synthesize_cantonese(text: str) -> CantoneseAudio:
                     "155",
                     "-o",
                     str(output_path),
-                    "--data-format=aac",
+                    "--file-format=WAVE",
+                    "--data-format=LEI16@22050",
                 ],
                 input=normalized,
                 capture_output=True,
@@ -114,7 +115,7 @@ def synthesize_cantonese(text: str) -> CantoneseAudio:
         if result.returncode != 0:
             raise CantoneseSpeechUnavailable("macOS 粤语声音无法完成合成")
         content = output_path.read_bytes()
-        if len(content) < 16 or content[4:8] != b"ftyp":
+        if len(content) < 44 or content[:4] != b"RIFF" or content[8:12] != b"WAVE":
             raise CantoneseSpeechUnavailable("macOS 粤语合成结果不是有效音频")
         return CantoneseAudio(content=content, voice=voice)
     finally:

@@ -25,7 +25,7 @@ const endpoints = {
   search: (query, limit) => `${base}/search?q=${encodeURIComponent(query)}&limit=${limit}`,
   language: `${base}/learn/language`,
   languageExport: `${base}/learn/language/export`,
-  speech: text => `${base}/learn/speech?text=${encodeURIComponent(text)}`,
+  speech: text => `${base}/learn/speech?v=2&text=${encodeURIComponent(text)}`,
   collector: `/${networkType}/collector`,
   map: `/${networkType}`,
 };

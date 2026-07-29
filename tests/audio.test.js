@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   findCantoneseVoice,
+  isSafariBrowser,
   StationAudioPlayer,
   waitForCantoneseVoice,
 } from '../web/js/learn/audio.js';
@@ -20,6 +21,19 @@ test('Cantonese voice selection prioritizes zh-HK and known Yue identifiers', ()
 
   const safariName = {lang: '', name: 'Sin-ji (Premium)'};
   assert.equal(findCantoneseVoice([mandarin, safariName]), safariName);
+});
+
+test('Safari detection excludes Chrome even though Chrome UA contains Safari', () => {
+  const safari = {
+    vendor: 'Apple Computer, Inc.',
+    userAgent: 'Mozilla/5.0 Version/16.6 Safari/605.1.15',
+  };
+  const chrome = {
+    vendor: 'Google Inc.',
+    userAgent: 'Mozilla/5.0 Chrome/126.0.0.0 Safari/537.36',
+  };
+  assert.equal(isSafariBrowser(safari), true);
+  assert.equal(isSafariBrowser(chrome), false);
 });
 
 test('Cantonese voice selection never falls back to Mandarin or Taiwanese voices', () => {
@@ -90,7 +104,7 @@ test('StationAudioPlayer blocks speech when Safari exposes only Mandarin', async
   assert.equal(speakCalls, 0);
 });
 
-test('StationAudioPlayer uses native Cantonese audio before Safari Web Speech voices', async () => {
+test('StationAudioPlayer uses native Cantonese audio first only in Safari mode', async () => {
   let speakCalls = 0;
   let playedUrl = '';
   const synthesis = {
@@ -103,13 +117,44 @@ test('StationAudioPlayer uses native Cantonese audio before Safari Web Speech vo
   const player = new StationAudioPlayer({
     synthesis,
     utteranceFactory: text => ({text}),
-    nativeSpeechUrl: text => `/api/metro/learn/speech?text=${encodeURIComponent(text)}`,
+    nativeSpeechUrl: text => `/api/metro/learn/speech?v=2&text=${encodeURIComponent(text)}`,
+    nativeSpeechFirst: true,
     voiceWaitTimeout: 0,
   });
   player.playUrl = async url => { playedUrl = url; };
 
   await player.speakCantonese('会展中心');
 
-  assert.equal(playedUrl, '/api/metro/learn/speech?text=%E4%BC%9A%E5%B1%95%E4%B8%AD%E5%BF%83');
+  assert.equal(playedUrl, '/api/metro/learn/speech?v=2&text=%E4%BC%9A%E5%B1%95%E4%B8%AD%E5%BF%83');
   assert.equal(speakCalls, 0);
+});
+
+test('StationAudioPlayer keeps the original Chrome Web Speech voice before native audio', async () => {
+  const voice = {lang: 'zh-HK', name: 'Chrome Cantonese'};
+  let spoken = null;
+  let nativeCalls = 0;
+  const synthesis = {
+    getVoices: () => [voice],
+    addEventListener() {},
+    removeEventListener() {},
+    cancel() {},
+    speak(utterance) {
+      spoken = utterance;
+      queueMicrotask(() => utterance.onend());
+    },
+  };
+  const player = new StationAudioPlayer({
+    synthesis,
+    utteranceFactory: text => ({text}),
+    nativeSpeechUrl: () => '/api/metro/learn/speech?v=2',
+    nativeSpeechFirst: false,
+    voiceWaitTimeout: 0,
+  });
+  player.playUrl = async () => { nativeCalls += 1; };
+
+  await player.speakCantonese('福田');
+
+  assert.equal(spoken.voice, voice);
+  assert.equal(spoken.rate, .8);
+  assert.equal(nativeCalls, 0);
 });

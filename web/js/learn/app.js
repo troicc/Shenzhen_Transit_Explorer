@@ -1,8 +1,8 @@
 import {$, clamp, damp, debounce, escapeHtml, normalizePinyin, routeColor, showToast, travelIndex} from './core.js?v=3';
-import {transitApi} from './api.js?v=2';
+import {transitApi} from './api.js?v=3';
 import {buildRouteGeometry, routeGeometryCacheKey} from './geometry.js';
 import {createJourneyFrame} from './journey.js';
-import {deleteLocalAudio, getLocalAudio, putLocalAudio, StationAudioPlayer} from './audio.js?v=2';
+import {deleteLocalAudio, getLocalAudio, putLocalAudio, StationAudioPlayer} from './audio.js?v=3';
 import {LearnExperience} from './experience.js';
 import {
   fallbackExperienceProfile,

@@ -125,7 +125,7 @@ class InternalApiContractTests(unittest.TestCase):
                 self.assertIn("focus", learning.json()["geometry"])
 
     def test_bus_and_metro_share_native_cantonese_speech(self) -> None:
-        audio = CantoneseAudio(content=b"\x00\x00\x00\x18ftypM4A test-audio", voice="Sin-ji")
+        audio = CantoneseAudio(content=b"RIFF\x12\x00\x00\x00WAVEfmt test-audio", voice="Sin-ji")
         with mock.patch("transit_explorer.common.network.synthesize_cantonese", return_value=audio) as synthesize:
             for network_id in ("bus", "metro"):
                 response = self.client.get(
@@ -133,10 +133,24 @@ class InternalApiContractTests(unittest.TestCase):
                     params={"text": "会展中心"},
                 )
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.headers["content-type"], "audio/mp4")
+                self.assertEqual(response.headers["content-type"], "audio/wav")
+                self.assertEqual(response.headers["accept-ranges"], "bytes")
                 self.assertEqual(response.headers["x-transit-voice"], "Sin-ji")
                 self.assertEqual(response.content, audio.content)
         self.assertEqual(synthesize.call_count, 2)
+
+    def test_native_cantonese_speech_supports_safari_byte_ranges(self) -> None:
+        audio = CantoneseAudio(content=b"RIFF\x12\x00\x00\x00WAVEfmt test-audio", voice="Sin-ji")
+        with mock.patch("transit_explorer.common.network.synthesize_cantonese", return_value=audio):
+            response = self.client.get(
+                "/api/metro/learn/speech",
+                params={"text": "会展中心"},
+                headers={"Range": "bytes=0-11"},
+            )
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(response.content, audio.content[:12])
+        self.assertEqual(response.headers["content-range"], "bytes 0-11/26")
+        self.assertEqual(response.headers["content-encoding"], "identity")
 
     def test_native_cantonese_speech_reports_service_failure(self) -> None:
         with mock.patch(

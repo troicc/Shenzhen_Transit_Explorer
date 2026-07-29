@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -327,6 +327,7 @@ def create_network_router(service: NetworkService) -> APIRouter:
 
     @router.get("/learn/speech")
     def cantonese_speech(
+        request: Request,
         text: str = Query(..., min_length=1, max_length=120),
     ) -> Response:
         try:
@@ -335,14 +336,42 @@ def create_network_router(service: NetworkService) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except CantoneseSpeechUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return Response(
-            content=audio.content,
-            media_type="audio/mp4",
-            headers={
-                "Cache-Control": "private, max-age=86400",
-                "X-Transit-Voice": audio.voice,
-            },
-        )
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "private, max-age=86400",
+            "Content-Encoding": "identity",
+            "X-Transit-Voice": audio.voice,
+        }
+        range_header = request.headers.get("range", "").strip()
+        if range_header.startswith("bytes="):
+            requested = range_header[6:].split(",", 1)[0]
+            start_text, separator, end_text = requested.partition("-")
+            try:
+                if not separator:
+                    raise ValueError
+                if start_text:
+                    start = int(start_text)
+                    end = int(end_text) if end_text else len(audio.content) - 1
+                else:
+                    suffix = int(end_text)
+                    start = max(0, len(audio.content) - suffix)
+                    end = len(audio.content) - 1
+                if start < 0 or end < start or start >= len(audio.content):
+                    raise ValueError
+                end = min(end, len(audio.content) - 1)
+            except ValueError:
+                return Response(
+                    status_code=416,
+                    headers={**headers, "Content-Range": "bytes */{}".format(len(audio.content))},
+                )
+            headers["Content-Range"] = "bytes {}-{}/{}".format(start, end, len(audio.content))
+            return Response(
+                content=audio.content[start : end + 1],
+                status_code=206,
+                media_type="audio/wav",
+                headers=headers,
+            )
+        return Response(content=audio.content, media_type="audio/wav", headers=headers)
 
     @router.get("/search")
     def search(

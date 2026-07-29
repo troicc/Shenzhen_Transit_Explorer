@@ -62,6 +62,14 @@ function availableVoices(synthesis) {
   }
 }
 
+export function isSafariBrowser(navigatorLike = globalThis.navigator) {
+  const userAgent = String(navigatorLike?.userAgent || '');
+  const vendor = String(navigatorLike?.vendor || '');
+  return /Safari/i.test(userAgent)
+    && /Apple Computer/i.test(vendor)
+    && !/(?:Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS)/i.test(userAgent);
+}
+
 export function findCantoneseVoice(voices = []) {
   const list = Array.from(voices || []);
   const language = voice => String(voice?.lang || '').trim();
@@ -120,6 +128,7 @@ export class StationAudioPlayer {
     synthesis = globalThis.speechSynthesis,
     utteranceFactory = text => new globalThis.SpeechSynthesisUtterance(text),
     nativeSpeechUrl = null,
+    nativeSpeechFirst = isSafariBrowser(),
     voiceWaitTimeout = 1800,
     voicePollInterval = 80,
   } = {}) {
@@ -129,6 +138,7 @@ export class StationAudioPlayer {
     this.synthesis = synthesis;
     this.utteranceFactory = utteranceFactory;
     this.nativeSpeechUrl = nativeSpeechUrl;
+    this.nativeSpeechFirst = nativeSpeechFirst;
     this.voiceWaitTimeout = voiceWaitTimeout;
     this.voicePollInterval = voicePollInterval;
     this.cantoneseVoicePromise = null;
@@ -206,21 +216,36 @@ export class StationAudioPlayer {
   }
 
   async speakCantonese(text) {
-    if (typeof this.nativeSpeechUrl === 'function') {
+    const nativeAvailable = typeof this.nativeSpeechUrl === 'function';
+    if (this.nativeSpeechFirst && nativeAvailable) {
       try {
         return await this.playUrl(this.nativeSpeechUrl(text));
       } catch (_) {
         // Fall back only to an explicitly identified browser Cantonese voice.
       }
     }
-    if (!this.synthesis?.speak || typeof this.utteranceFactory !== 'function') {
+    const browserSpeechAvailable = Boolean(
+      this.synthesis?.speak && typeof this.utteranceFactory === 'function',
+    );
+    if (browserSpeechAvailable) {
+      const voice = findCantoneseVoice(availableVoices(this.synthesis))
+        || await this.prepareCantoneseVoice();
+      if (voice) return this.speakWithVoice(text, voice);
+    }
+    if (!this.nativeSpeechFirst && nativeAvailable) {
+      try {
+        return await this.playUrl(this.nativeSpeechUrl(text));
+      } catch (_) {
+        // Continue to the explicit failure below; never use a Mandarin voice.
+      }
+    }
+    if (!browserSpeechAvailable && !nativeAvailable) {
       throw new Error('本机粤语服务和当前浏览器的粤语语音均不可用');
     }
-    const voice = findCantoneseVoice(availableVoices(this.synthesis))
-      || await this.prepareCantoneseVoice();
-    if (!voice) {
-      throw new Error('本机粤语服务暂时不可用，且 Safari 未暴露粤语声音；已阻止 Safari 改用普通话');
-    }
+    throw new Error('粤语播放失败，且已阻止 Safari 改用普通话');
+  }
+
+  speakWithVoice(text, voice) {
     const token = ++this.token;
     return new Promise((resolve, reject) => {
       const utterance = this.utteranceFactory(text);
