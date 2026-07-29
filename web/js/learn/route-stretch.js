@@ -57,6 +57,7 @@ export class RouteStretchController {
     this.progress = 0;
     this.frame = 0;
     this.token = 0;
+    this.animationResolve = null;
   }
 
   setRoute(route, geometry) {
@@ -96,21 +97,29 @@ export class RouteStretchController {
     const token = ++this.token;
     if (this.frame) this.cancelFrame(this.frame);
     this.frame = 0;
+    const previousResolve = this.animationResolve;
+    this.animationResolve = null;
+    previousResolve?.(false);
     if (this.reducedMotion || duration <= 0 || Math.abs(destination - startValue) < 1e-6) {
       this.apply(destination);
       return Promise.resolve(true);
     }
     const startedAt = this.now();
     return new Promise(resolve => {
+      this.animationResolve = resolve;
+      const finish = result => {
+        if (this.animationResolve === resolve) this.animationResolve = null;
+        resolve(result);
+      };
       const step = timestamp => {
-        if (token !== this.token) { resolve(false); return; }
+        if (token !== this.token) { finish(false); return; }
         const ratio = clamp((timestamp - startedAt) / duration, 0, 1);
         this.apply(startValue + (destination - startValue) * easing(ratio));
         if (ratio < 1) this.frame = this.requestFrame(step);
         else {
           this.frame = 0;
           this.apply(destination);
-          resolve(true);
+          finish(true);
         }
       };
       this.frame = this.requestFrame(step);
@@ -140,6 +149,9 @@ export class RouteStretchController {
     this.token += 1;
     if (this.frame) this.cancelFrame(this.frame);
     this.frame = 0;
+    const resolve = this.animationResolve;
+    this.animationResolve = null;
+    resolve?.(false);
   }
 
   destroy() {
@@ -149,4 +161,3 @@ export class RouteStretchController {
     this.geometry = null;
   }
 }
-

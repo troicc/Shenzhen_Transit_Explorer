@@ -85,13 +85,14 @@ body.is-map-navigating .intro-pill{background:rgba(7,19,29,.96)}
 /* Metro Final: one SVG carries the cover, full network and focused route. */
 .line-info-dock{display:contents}
 .metro-line-strip{display:none}
-.app[data-network="metro"] .learn-flip-card{transform:none!important;transform-style:flat}
+.app[data-network="metro"] .learn-flip-card{transform-origin:50% 50%;transform-style:preserve-3d;transition:transform 760ms cubic-bezier(.22,.72,.18,1);will-change:auto}
 .app[data-network="metro"] .learn-face-overview{display:none!important}
 .app[data-network="metro"] .learn-face-route{display:block;opacity:1!important;transform:none!important;pointer-events:auto!important;backface-visibility:visible!important}
-.app[data-network="metro"] #focusSvg{transform-origin:50% 50%;transform-style:flat;transition:transform 760ms cubic-bezier(.22,.72,.18,1),opacity .42s ease;will-change:auto}
-.app[data-network="metro"][data-line-state="entering"] #focusSvg,
-.app[data-network="metro"][data-line-state="returning"] #focusSvg{transform-style:preserve-3d;will-change:transform}
-.app[data-network="metro"][data-cover-flipped="true"] #focusSvg{transform:rotateX(180deg)}
+.app[data-network="metro"][data-line-state="entering"] .learn-flip-card,
+.app[data-network="metro"][data-line-state="returning"] .learn-flip-card{will-change:transform}
+.app[data-network="metro"][data-cover-flipped="true"] .learn-flip-card{transform:rotateX(180deg)}
+.app[data-network="metro"][data-line-state="entering"] #focusSvg *,
+.app[data-network="metro"][data-line-state="returning"] #focusSvg *{transition:none!important;animation:none!important}
 .app[data-network="metro"][data-cover-flipped="true"] #metroDistrictLayer text,
 .app[data-network="metro"][data-cover-flipped="true"] .metro-transfer-name{opacity:0}
 .app[data-network="metro"].flat-map .map-stage{background:radial-gradient(circle at 48% 38%,rgba(28,88,105,.2),transparent 42%),linear-gradient(180deg,#091b25 0%,#06141c 56%,#030d13 100%)}
@@ -163,4 +164,4 @@ body.is-map-navigating .intro-pill{background:rgba(7,19,29,.96)}
 .layout-update-notice[hidden]{display:none}.layout-update-notice button{border:0;border-radius:8px;background:#75e2ad;color:#052016;padding:6px 9px;font-weight:700}
 
 @media(max-width:760px){.app[data-network="metro"] .line-info-dock{bottom:12px;width:calc(100% - 18px);grid-template-columns:1fr}.app[data-network="metro"] .line-info-dock>.station-card{display:none}.app[data-network="metro"] .metro-line-strip{bottom:12px;max-width:calc(100% - 18px)}.practice-settings{flex-wrap:wrap}.typing-ghost{top:45px}}
-@media(prefers-reduced-motion:reduce){.app[data-network="metro"] #focusSvg{transition:none!important}}
+@media(prefers-reduced-motion:reduce){.app[data-network="metro"] .learn-flip-card,.app[data-network="metro"] #focusSvg{transition:none!important}}

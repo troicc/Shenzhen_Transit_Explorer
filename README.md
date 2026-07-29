@@ -225,6 +225,7 @@ cp data/metro_schematic_layout.json var/metro/layout.json
 - 起点确认题只推进输入进度，车辆保持原位；后续输入进度驱动车辆驶向下一站。
 - 已行驶线路精确结束在车辆位置，未来段不会提前高亮。
 - 切换扁平、动画或真实地图只更换 renderer，不重置练习状态。
+- Metro Final 的翻面只作用于场景 wrapper；进入或返回先完成约 780ms 翻面，再启动路线几何与镜头收拢，翻面期间不运行 SVG 子节点过渡和关键帧。
 - 粤语播报保持“本机音频 → 站点在线音频 → 系统粤语”的顺序。Chrome 等浏览器继续优先使用
   原有 Web Speech 粤语 voice；Safari 则优先通过 `/api/{network}/learn/speech` 明确调用已安装的
   `zh_HK`/Yue 声音并返回支持 Range 的 PCM/WAV。因此即使 Safari 未在 Web Speech 清单中暴露

@@ -274,6 +274,7 @@ export class FocusRenderer {
     this.view = {x: 0, y: 0, w: 1000, h: 600};
     this.viewFrame = 0;
     this.viewAnimationToken = 0;
+    this.viewAnimationResolve = null;
     this.lastDynamic = null;
     this.lastFollowKey = null;
     this.lastStaticSceneKey = null;
@@ -475,6 +476,9 @@ export class FocusRenderer {
     this.viewAnimationToken += 1;
     cancelAnimationFrame(this.viewFrame);
     this.viewFrame = 0;
+    const resolve = this.viewAnimationResolve;
+    this.viewAnimationResolve = null;
+    resolve?.(false);
   }
 
   setView(target, options = {}) {
@@ -491,8 +495,13 @@ export class FocusRenderer {
     const start = {...this.view};
     const startedAt = performance.now();
     return new Promise(resolve => {
+      this.viewAnimationResolve = resolve;
+      const finish = result => {
+        if (this.viewAnimationResolve === resolve) this.viewAnimationResolve = null;
+        resolve(result);
+      };
       const step = now => {
-        if (token !== this.viewAnimationToken) { resolve(false); return; }
+        if (token !== this.viewAnimationToken) { finish(false); return; }
         const ratio = clamp((now - startedAt) / duration, 0, 1);
         const eased = easing(ratio);
         this.view = {
@@ -501,7 +510,7 @@ export class FocusRenderer {
         };
         this.applyView();
         if (ratio < 1) this.viewFrame = requestAnimationFrame(step);
-        else { this.viewFrame = 0; resolve(true); }
+        else { this.viewFrame = 0; finish(true); }
       };
       this.viewFrame = requestAnimationFrame(step);
     });

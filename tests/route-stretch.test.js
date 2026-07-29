@@ -46,6 +46,22 @@ test('forward and reverse traveled paths end exactly at the vehicle progress', a
   assert.deepEqual(controller.geometry.path, source.path);
 });
 
+test('cancelling a running stretch settles its promise without waiting for another frame', async () => {
+  let nextFrame = null;
+  const controller = new RouteStretchController({
+    renderer: {setDisplayGeometry() {}},
+    requestFrame: callback => { nextFrame = callback; return 1; },
+    cancelFrame: () => { nextFrame = null; },
+    now: () => 0,
+  });
+  controller.setRoute({id: 'metro-1:forward'}, source);
+  const pending = controller.animateTo(1, {duration: 100});
+  assert.equal(typeof nextFrame, 'function');
+  controller.cancel();
+  assert.equal(await pending, false);
+  assert.equal(nextFrame, null);
+});
+
 test('completion spring settles exactly at one while allowing a restrained overshoot', () => {
   const samples = Array.from({length: 101}, (_, index) => completionSpring(index / 100));
   assert.equal(samples[0], 0);

@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 
 import {LearnExperience} from '../web/js/learn/experience.js';
 
-function fixture(profile = 'metroFinal', cameraMode = 'follow') {
+function fixture(profile = 'metroFinal', cameraMode = 'follow', {
+  reducedMotion = true,
+  recordTransitions = false,
+  waitForAnimation,
+  stretchController,
+} = {}) {
   const events = [];
   const classes = new Set();
   const appElement = {
@@ -14,10 +19,18 @@ function fixture(profile = 'metroFinal', cameraMode = 'follow') {
     },
   };
   const flipScene = {dataset: {face: 'overview'}};
+  const overviewRenderer = recordTransitions ? {
+    homeView: {x: 0, y: 0, w: 100, h: 80},
+    setFlipped: value => events.push(['flip', value]),
+    setFocused: value => events.push(['focused', value]),
+    setView: () => events.push(['overview-view']),
+  } : {};
   const focusRenderer = {
     geometry: {path: [[0, 0], [1, 1]]},
     fitImmersive: async (_progress, options) => { events.push(['immersive-fit', options.strong]); },
     fitFullRoute: async options => { events.push(['full-fit', options.duration]); },
+    cancelViewAnimation: recordTransitions ? () => events.push(['cancel-view']) : () => {},
+    resetDisplayGeometry: recordTransitions ? () => events.push(['reset-geometry']) : () => {},
     showArrivalPulse: index => events.push(['arrival', index]),
     pointAtProgress: progress => [progress * 100, 40],
     pointAhead: progress => [progress * 100 + 5, 40],
@@ -30,10 +43,12 @@ function fixture(profile = 'metroFinal', cameraMode = 'follow') {
     appElement,
     flipScene,
     focusRenderer,
-    overviewRenderer: {},
+    overviewRenderer,
     realMapRenderer: {hide: () => events.push(['hide-real'])},
+    stretchController,
     cameraMode,
-    reducedMotion: true,
+    reducedMotion,
+    waitForAnimation,
   });
   return {experience, events, appElement, flipScene};
 }
@@ -56,6 +71,56 @@ test('Metro Final route entry flips to the route face and uses immersive fit', a
   assert.equal(appElement.dataset.experience, 'metroFinal');
   assert.equal(flipScene.dataset.face, 'route');
   assert.deepEqual(events[0], ['immersive-fit', true]);
+  experience.destroy();
+});
+
+test('Metro Final waits for the wrapper flip before starting route geometry and camera work', async () => {
+  const {experience, events} = fixture('metroFinal', 'follow', {
+    reducedMotion: false,
+    recordTransitions: true,
+    waitForAnimation: async milliseconds => events.push(['wait', milliseconds]),
+    stretchController: {
+      geometryAt: () => ({path: [[0, 0], [1, 1]]}),
+      setRoute: () => events.push(['set-route']),
+      animateTo: async (target, options) => events.push(['stretch', target, options.duration]),
+    },
+  });
+  events.length = 0;
+
+  await experience.enterRoute(frame);
+
+  const waitIndex = events.findIndex(event => event[0] === 'wait');
+  assert.equal(events[waitIndex][1], 780);
+  assert.deepEqual(events[waitIndex - 1], ['flip', false]);
+  assert.ok(events.findIndex(event => event[0] === 'stretch') > waitIndex);
+  assert.ok(events.findIndex(event => event[0] === 'immersive-fit') > waitIndex);
+  experience.destroy();
+});
+
+test('Metro Final flips before the return settle and cancels pending map animation', async () => {
+  const {experience, events} = fixture('metroFinal', 'follow', {
+    reducedMotion: false,
+    recordTransitions: true,
+    waitForAnimation: async milliseconds => events.push(['wait', milliseconds]),
+    stretchController: {
+      source: {path: [[0, 0], [1, 1]]},
+      cancel: () => events.push(['cancel-stretch']),
+      animateTo: async (target, options) => events.push(['stretch', target, options.duration]),
+    },
+  });
+  events.length = 0;
+
+  await experience.returnOverview();
+
+  const waitIndex = events.findIndex(event => event[0] === 'wait');
+  const stretchIndex = events.findIndex(event => event[0] === 'stretch');
+  const fitIndex = events.findIndex(event => event[0] === 'full-fit');
+  assert.deepEqual(events[waitIndex - 1], ['flip', true]);
+  assert.equal(events[waitIndex][1], 780);
+  assert.ok(events.indexOf(events.find(event => event[0] === 'cancel-stretch')) < waitIndex);
+  assert.ok(stretchIndex > waitIndex);
+  assert.ok(fitIndex > waitIndex);
+  assert.equal(events[fitIndex][1], 420);
   experience.destroy();
 });
 

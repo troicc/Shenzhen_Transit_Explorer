@@ -7,6 +7,8 @@ import {
 import {completionSpring} from './route-stretch.js';
 
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const COVER_FLIP_SETTLE_MS = 780;
+const METRO_RETURN_MOTION_MS = 420;
 
 export function resolveArrivalPulseIndex(frame) {
   if (frame?.phase !== 'arriving') return null;
@@ -25,6 +27,7 @@ export class LearnExperience {
     stretchController,
     cameraMode = 'follow',
     reducedMotion = false,
+    waitForAnimation = wait,
   } = {}) {
     this.network = network;
     this.appElement = appElement;
@@ -34,6 +37,7 @@ export class LearnExperience {
     this.realMapRenderer = realMapRenderer;
     this.stretchController = stretchController;
     this.reducedMotion = Boolean(reducedMotion);
+    this.waitForAnimation = typeof waitForAnimation === 'function' ? waitForAnimation : wait;
     this.profile = null;
     this.camera = null;
     this.lastJourneyProgress = null;
@@ -98,33 +102,42 @@ export class LearnExperience {
     if (this.appElement) this.appElement.dataset.lineState = value;
   }
 
+  async waitForCoverFlip() {
+    if (this.reducedMotion) return;
+    await this.waitForAnimation(COVER_FLIP_SETTLE_MS);
+  }
+
   async enterRoute(frame) {
     const token = ++this.returnToken;
     const wasFlipped = this.coverFlipped;
+    this.appElement?.classList.remove('route-returning');
     this.setLineState('entering');
     this.setFace('route');
     this.overviewRenderer?.setFocused?.(true, frame?.routeId);
     this.stretchController?.setRoute?.(frame?.route, this.focusRenderer?.sourceGeometry || this.focusRenderer?.geometry);
     if (this.capabilities.coverFlip) {
       this.setCoverFlipped(false);
-      if (wasFlipped && !this.reducedMotion) await wait(420);
+      if (wasFlipped) await this.waitForCoverFlip();
     }
     if (token !== this.returnToken) return false;
     if (this.capabilities.routeStretch) {
       const strong = this.network !== 'bus' || (frame?.route?.stops?.length || 0) <= BUS_IMMERSIVE_LIMITS.maxStationsForStrongZoom;
       const targetGeometry = this.stretchController?.geometryAt?.(1) || this.focusRenderer.geometry;
       this.appElement?.classList.add('route-stretching');
-      await Promise.all([
-        this.stretchController?.animateTo?.(1, {duration: 920}) || Promise.resolve(),
-        this.usesFollowCamera(frame)
-          ? this.focusRenderer.fitImmersive(frame?.routeProgress || 0, {
-            reverse: frame?.direction === 'reverse', strong, geometry: targetGeometry, animate: true, duration: 920,
-          })
-          : this.focusRenderer.fitFullRoute({
-            practiceVisible: false, geometry: targetGeometry, animate: true, duration: 920,
-          }),
-      ]);
-      this.appElement?.classList.remove('route-stretching');
+      try {
+        await Promise.all([
+          this.stretchController?.animateTo?.(1, {duration: 920}) || Promise.resolve(),
+          this.usesFollowCamera(frame)
+            ? this.focusRenderer.fitImmersive(frame?.routeProgress || 0, {
+              reverse: frame?.direction === 'reverse', strong, geometry: targetGeometry, animate: true, duration: 920,
+            })
+            : this.focusRenderer.fitFullRoute({
+              practiceVisible: false, geometry: targetGeometry, animate: true, duration: 920,
+            }),
+        ]);
+      } finally {
+        this.appElement?.classList.remove('route-stretching');
+      }
     } else {
       await this.stretchController?.reset?.({duration: 0});
       await this.focusRenderer.fitFullRoute({practiceVisible: false, animate: true, duration: 430});
@@ -243,13 +256,29 @@ export class LearnExperience {
     this.setLineState('returning');
     this.appElement?.classList.add('route-returning');
     const source = this.stretchController?.source || this.focusRenderer.sourceGeometry || this.focusRenderer.geometry;
+    const hasCoverFlip = Boolean(this.capabilities.coverFlip);
+    const returnDuration = this.capabilities.routeStretch
+      ? (hasCoverFlip ? METRO_RETURN_MOTION_MS : 860)
+      : 360;
+    const stretchDuration = this.capabilities.routeStretch ? returnDuration : 0;
+
+    // Cancel any entry/follow animation before the cover starts rotating. A
+    // double-click can arrive while an earlier route transition is still settling.
+    this.stretchController?.cancel?.();
+    this.focusRenderer?.cancelViewAnimation?.();
+    if (hasCoverFlip) {
+      this.setCoverFlipped(true);
+      await this.waitForCoverFlip();
+    }
+    if (token !== this.returnToken) return false;
+
     await Promise.all([
-      this.stretchController?.animateTo?.(0, {duration: this.capabilities.routeStretch ? 860 : 0}) || Promise.resolve(),
+      this.stretchController?.animateTo?.(0, {duration: stretchDuration}) || Promise.resolve(),
       this.focusRenderer.fitFullRoute({
         practiceVisible: false,
         geometry: source,
         animate: true,
-        duration: this.capabilities.routeStretch ? 860 : 360,
+        duration: returnDuration,
       }),
     ]);
     if (token !== this.returnToken) return false;
@@ -257,11 +286,6 @@ export class LearnExperience {
     this.focusRenderer?.resetDisplayGeometry?.();
     if (this.overviewRenderer?.homeView) this.overviewRenderer.setView?.(this.overviewRenderer.homeView);
     this.setFace('overview');
-    if (this.capabilities.coverFlip) {
-      if (!this.reducedMotion) await wait(80);
-      this.setCoverFlipped(true);
-      if (!this.reducedMotion) await wait(560);
-    }
     this.appElement?.classList.remove('route-returning');
     this.setLineState('overview');
     return token === this.returnToken;
