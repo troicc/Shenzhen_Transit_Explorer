@@ -1,0 +1,11 @@
+{
+  "path": [[0, 0], [100, 0]],
+  "stops": [
+    {"name": "甲", "progress": 0, "anchorKey": null},
+    {"name": "乙", "progress": 0.2, "anchorKey": null},
+    {"name": "丙", "progress": 1, "anchorKey": null}
+  ],
+  "anchors": {},
+  "alpha": 0.5,
+  "expectedProgress": [0, 0.35, 1]
+}

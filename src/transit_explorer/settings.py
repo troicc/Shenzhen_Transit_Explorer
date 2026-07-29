@@ -24,6 +24,7 @@ DIST_DIR = _configured_path("TRANSIT_DIST_DIR", PROJECT_ROOT / "dist")
 PUBLIC_DIR = _configured_path("TRANSIT_PUBLIC_DIR", DIST_DIR / "public")
 SHARED_VAR_DIR = VAR_DIR / "shared"
 LANGUAGE_PATH = SHARED_VAR_DIR / "language.json"
+REVIEW_PATH = SHARED_VAR_DIR / "review.json"
 LEARN_EXPERIENCE_PROFILES = ("standard", "metroFinal", "busExperimental")
 LEARN_EXPERIENCE_PRESETS = {
     "metroFinal": {

@@ -1,0 +1,29 @@
+{
+  "sourceDate": "2026-07-27T06:39:08+00:00",
+  "mapVersion": "fixture-v1",
+  "geometryPass": "schematic-octilinear-v1",
+  "lines": [
+    {
+      "id": "1",
+      "name": "1号线",
+      "color": "#00ab39",
+      "d": "M 0 0 L 50 0 L 100 0",
+      "stations": [
+        {"name": "起点", "progress": 0, "pinyin": "qi dian", "reviewStatus": "confirmed", "reviewNote": "", "audioUrl": ""},
+        {"name": "中站", "progress": 0.5, "pinyin": "zhong zhan", "reviewStatus": "unreviewed", "reviewNote": "换乘", "audioUrl": "https://example.invalid/zhong.mp3"},
+        {"name": "甲终点", "progress": 1, "pinyin": "jia zhong dian", "reviewStatus": "unreviewed", "reviewNote": "", "audioUrl": ""}
+      ]
+    },
+    {
+      "id": "6b",
+      "name": "6号线支线",
+      "color": "#008269",
+      "d": "M 50 0 V 25 V 50",
+      "stations": [
+        {"name": "中站", "progress": 0, "pinyin": "zhong zhan", "reviewStatus": "unreviewed", "reviewNote": "换乘", "audioUrl": "https://example.invalid/zhong.mp3"},
+        {"name": "支线中点", "progress": 0.5, "pinyin": "zhi xian zhong dian", "reviewStatus": "unreviewed", "reviewNote": "", "audioUrl": ""},
+        {"name": "支线终点", "progress": 1, "pinyin": "zhi xian zhong dian", "reviewStatus": "unreviewed", "reviewNote": "", "audioUrl": ""}
+      ]
+    }
+  ]
+}

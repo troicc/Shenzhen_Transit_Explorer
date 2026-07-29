@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 Point = Tuple[float, float]
 
@@ -486,42 +486,19 @@ def _route_schematic(
         line_path.extend(_octilinear_midpoints(a, b))
     line_path = merge_collinear(line_path)
 
-    cumulative, total = path_metrics(line_path)
+    _, total = path_metrics(line_path)
 
     # 每个站点锚点在线路上的弧长（投影；骨架穿过该点故近似精确）
     station_anchors = [item for item in anchors if item["is_station"]]
     for item in station_anchors:
         item["_arc"] = project_point_to_path(line_path, (item["x"], item["y"]))["progress"] * total
 
-    station_progress = [0.0] * count
-    # 端点兜底（线路两端站点锚点必然存在）
-    station_progress[0] = 0.0
-    station_progress[-1] = 1.0
-
-    # 按相邻「站点锚点」分段，段内非锚点站按 α 混合相对位置落在弧长上
-    for seg in range(len(station_anchors) - 1):
-        start = station_anchors[seg]
-        end = station_anchors[seg + 1]
-        a_idx = start["stop_idx"]
-        b_idx = end["stop_idx"]
-        rp_a = float(stops[a_idx]["progress"])
-        rp_b = float(stops[b_idx]["progress"])
-        arc_a = start["_arc"]
-        arc_b = end["_arc"]
-        span = list(range(a_idx, b_idx + 1))
-        m = len(span)
-        for j, sidx in enumerate(span):
-            real_rel = (float(stops[sidx]["progress"]) - rp_a) / (rp_b - rp_a) if rp_b > rp_a else 0.0
-            real_rel = clamp(real_rel, 0.0, 1.0)
-            even_rel = j / (m - 1) if m > 1 else 0.0
-            mixed = alpha * real_rel + (1.0 - alpha) * even_rel
-            arc = arc_a + mixed * (arc_b - arc_a)
-            station_progress[sidx] = arc / total if total else 0.0
-
-    # 单调化 + 收尾
-    for i in range(1, count):
-        station_progress[i] = max(station_progress[i], station_progress[i - 1] + 1e-9)
-    station_progress[-1] = 1.0
+    station_progress = reflow_station_progress(
+        stops,
+        [int(item["stop_idx"]) for item in station_anchors],
+        [float(item["_arc"]) / total if total else 0.0 for item in station_anchors],
+        alpha,
+    )
 
     anchor_indices = sorted({item["stop_idx"] for item in station_anchors if item["stop_idx"] is not None})
     return {
@@ -530,6 +507,53 @@ def _route_schematic(
         "anchor_indices": anchor_indices,
         "bbox": [round(v, 2) for v in bbox_of(line_path)],
     }
+
+
+def reflow_station_progress(
+    stops: Sequence[Mapping[str, Any]],
+    anchor_indexes: Sequence[int],
+    anchor_progresses: Sequence[float],
+    alpha: float,
+) -> List[float]:
+    """Blend real/even station spacing between trusted path anchors.
+
+    Studio's ``authoring/layout-math.js`` consumes the same JSON fixtures and
+    mirrors this pure calculation for immediate previews.  Persistence always
+    runs Python validation again.
+    """
+
+    count = len(stops)
+    if count < 2 or len(anchor_indexes) < 2 or len(anchor_indexes) != len(anchor_progresses):
+        return []
+    ratio = clamp(float(alpha), 0.0, 1.0)
+    output = [0.0] * count
+    for segment in range(len(anchor_indexes) - 1):
+        start_index = int(anchor_indexes[segment])
+        end_index = int(anchor_indexes[segment + 1])
+        start_real = float(stops[start_index].get("progress", start_index / (count - 1)))
+        end_real = float(stops[end_index].get("progress", end_index / (count - 1)))
+        start_arc = float(anchor_progresses[segment])
+        end_arc = float(anchor_progresses[segment + 1])
+        span_length = end_index - start_index + 1
+        for offset in range(span_length):
+            station_index = start_index + offset
+            station_real = float(stops[station_index].get("progress", station_index / (count - 1)))
+            real_relative = (
+                clamp((station_real - start_real) / (end_real - start_real), 0.0, 1.0)
+                if end_real > start_real
+                else 0.0
+            )
+            even_relative = offset / (span_length - 1) if span_length > 1 else 0.0
+            output[station_index] = start_arc + (
+                ratio * real_relative + (1.0 - ratio) * even_relative
+            ) * (end_arc - start_arc)
+    output[0] = 0.0
+    minimum_gap = 1e-9
+    for index in range(1, count - 1):
+        ceiling = 1.0 - (count - 1 - index) * minimum_gap
+        output[index] = min(ceiling, max(output[index], output[index - 1] + minimum_gap))
+    output[-1] = 1.0
+    return output
 
 
 def build_schematic_network(

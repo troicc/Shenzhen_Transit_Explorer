@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from transit_explorer.features.schematic import reflow_station_progress
 from transit_explorer.networks.bus.builder import (
     build_focus_geometry,
     focus_self_intersections,
@@ -12,7 +13,28 @@ from transit_explorer.networks.bus.builder import (
 )
 
 
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "zhanyue-v3"
+
+
 class FocusGeometryTests(unittest.TestCase):
+    def test_authoring_layout_math_matches_the_shared_node_fixture(self):
+        fixture = json.loads((FIXTURE_DIR / "layout-math.json").read_text(encoding="utf-8"))
+        progress = reflow_station_progress(
+            fixture["stops"],
+            [0, len(fixture["stops"]) - 1],
+            [0.0, 1.0],
+            fixture["alpha"],
+        )
+        self.assertEqual(progress, fixture["expectedProgress"])
+
+        crowded = reflow_station_progress(
+            [{"progress": 0.0}, {"progress": 1.0}, {"progress": 1.0}],
+            [0, 2],
+            [0.0, 1.0],
+            1.0,
+        )
+        self.assertEqual(crowded, [0.0, 1.0 - 1e-9, 1.0])
+
     def test_focus_geometry_is_deterministic_octilinear_and_monotonic(self):
         source = [
             (0.0, 0.0),

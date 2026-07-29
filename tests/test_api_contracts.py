@@ -129,19 +129,21 @@ class InternalApiContractTests(unittest.TestCase):
         self.assertEqual(len(before.json()["routes"]), 1)
         before_revision = before.json()["revision"]
 
-        saved = self.client.post(
-            "/api/metro/studio",
-            json={
-                "alpha": 0.55,
-                "lines": {
-                    "测试": {
-                        "path": [[10, 10], [110, 50]],
-                        "station_progress": [0, 1],
-                    }
-                },
-                "anchors": {},
+        studio = self.client.get("/api/metro/studio").json()
+        self.assertEqual(studio["routes"][0]["stops"][0]["stationKey"], "甲")
+        self.assertIsNone(studio["routes"][0]["stops"][0]["anchorKey"])
+        payload = {
+            "baseRevision": before_revision,
+            "alpha": 0.55,
+            "lines": {
+                "测试": {
+                    "path": [[10, 10], [110, 50]],
+                    "station_progress": [0, 1],
+                }
             },
-        )
+            "anchors": {},
+        }
+        saved = self.client.post("/api/metro/studio", json=payload)
         self.assertEqual(saved.status_code, 200, saved.text)
         self.assertEqual(saved.json()["message"], "已保存并应用到地铁练习")
         self.assertNotEqual(saved.json()["revision"], before_revision)
@@ -153,6 +155,17 @@ class InternalApiContractTests(unittest.TestCase):
         self.assertEqual(learning["presentation_revision"], saved.json()["revision"])
         revision = self.client.get("/api/metro/presentation/revision").json()
         self.assertEqual(revision["revision"], saved.json()["revision"])
+
+        stale = self.client.post("/api/metro/studio", json=payload)
+        self.assertEqual(stale.status_code, 409, stale.text)
+        self.assertEqual(stale.json()["detail"]["code"], "revision_conflict")
+        self.assertEqual(stale.json()["detail"]["currentRevision"], saved.json()["revision"])
+
+        missing_revision = self.client.post(
+            "/api/metro/studio",
+            json={key: value for key, value in payload.items() if key != "baseRevision"},
+        )
+        self.assertEqual(missing_revision.status_code, 400, missing_revision.text)
 
     def test_shared_pages_and_removed_legacy_routes(self) -> None:
         for path in ("/", "/bus", "/metro", "/bus/collector", "/metro/collector", "/bus/learn", "/metro/learn", "/studio"):

@@ -10,6 +10,8 @@ import {
   travelIndex,
 } from '../web/js/learn/core.js';
 import {computeFocusView} from '../web/js/learn/geometry.js';
+import {routeGeometryCacheKey} from '../web/js/learn/geometry.js';
+import {focusStaticSceneKey} from '../web/js/learn/renderers.js';
 import {restoreTypingFocus, shouldRestoreTypingFocus} from '../web/js/learn/typing-focus.js';
 
 test('travelIndex follows the selected direction', () => {
@@ -98,4 +100,34 @@ test('practice panel inset reserves more vertical map space', () => {
   assert.ok(insetRouteBottom < fullRouteBottom);
   assert.ok(insetRouteBottom < 500);
   assert.ok(inset.w >= 1000);
+});
+
+test('geometry cache keys include presentation revision and every display dimension', () => {
+  const route = {id: 'metro-1:reverse', direction: 'reverse', built_at: 'old'};
+  const first = routeGeometryCacheKey(route, {revision: 'revision-a', schematic: true, balanced: true});
+  const revised = routeGeometryCacheKey(route, {revision: 'revision-b', schematic: true, balanced: true});
+  const geographic = routeGeometryCacheKey(route, {revision: 'revision-a', schematic: false, balanced: true});
+  const distance = routeGeometryCacheKey(route, {revision: 'revision-a', schematic: true, balanced: false});
+  assert.notEqual(first, revised);
+  assert.notEqual(first, geographic);
+  assert.notEqual(first, distance);
+  assert.match(first, /metro-1:reverse:reverse:schematic:balanced$/);
+});
+
+test('typing ratio does not invalidate static stations and labels', () => {
+  const base = {
+    currentOriginalIndex: 2,
+    nextOriginalIndex: 3,
+    reverse: false,
+    allLabels: false,
+    journeyActive: true,
+    unitPerPixel: 1.25,
+  };
+  const first = focusStaticSceneKey({...base, typingRatio: .1});
+  const typed = focusStaticSceneKey({...base, typingRatio: .8});
+  const arrived = focusStaticSceneKey({...base, currentOriginalIndex: 3, nextOriginalIndex: 4});
+  const zoomed = focusStaticSceneKey({...base, unitPerPixel: 1.4});
+  assert.equal(first, typed);
+  assert.notEqual(first, arrived);
+  assert.notEqual(first, zoomed);
 });

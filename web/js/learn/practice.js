@@ -1,10 +1,12 @@
 import {normalizePinyin} from './core.js?v=3';
+import {JourneyState} from './journey.js';
 
 export class PracticeEngine {
   constructor({onChange = () => {}, onFinish = () => {}, targetForStation = station => station?.pinyin || ''} = {}) {
     this.onChange = onChange;
     this.onFinish = onFinish;
     this.targetForStation = targetForStation;
+    this.journey = new JourneyState();
     this.timer = null;
     this.reset();
   }
@@ -13,7 +15,7 @@ export class PracticeEngine {
     this.stopTimer();
     this.mode = 'overview';
     this.stops = [];
-    this.index = 0;
+    this.journey.reset();
     this.value = '';
     this.lastValid = '';
     this.acceptedCharacters = 0;
@@ -29,6 +31,7 @@ export class PracticeEngine {
   start(stops, mode) {
     this.reset();
     this.stops = stops;
+    this.journey.reset(stops.length);
     this.mode = mode;
     this.running = true;
     this.timeLeft = 30;
@@ -36,11 +39,11 @@ export class PracticeEngine {
   }
 
   currentStation() {
-    return this.stops[this.index] || null;
+    return this.stops[this.journey.arrivedIndex] || null;
   }
 
   nextStation() {
-    return this.stops[this.index + 1] || null;
+    return this.stops[this.journey.targetIndex] || null;
   }
 
   targetStation() {
@@ -61,6 +64,7 @@ export class PracticeEngine {
     if (!this.locked) {
       this.value = '';
       this.lastValid = '';
+      this.journey.setTypingRatio(0);
     }
     this.emit();
     return true;
@@ -96,9 +100,11 @@ export class PracticeEngine {
     this.acceptedCharacters += added;
     this.value = normalized;
     this.lastValid = normalized;
+    this.journey.setTypingRatio(this.typingRatio());
     if (normalized === target) {
       this.locked = true;
       this.completedStations += 1;
+      this.journey.beginArrival();
       this.emit();
       return {type: 'complete', value: normalized};
     }
@@ -108,8 +114,8 @@ export class PracticeEngine {
 
   advance() {
     if (!this.locked || this.finished) return {finished: false};
-    if (this.index < this.stops.length - 1) this.index += 1;
-    if (this.index >= this.stops.length - 1) {
+    this.journey.completeArrival();
+    if (this.journey.targetIndex == null) {
       this.finish('complete');
       return {finished: true};
     }
@@ -126,6 +132,7 @@ export class PracticeEngine {
     this.running = false;
     this.locked = true;
     this.stopTimer();
+    this.journey.finish({completed: reason === 'complete'});
     this.emit();
     this.onFinish({...this.snapshot(), reason});
   }
@@ -158,7 +165,10 @@ export class PracticeEngine {
   snapshot() {
     return {
       mode: this.mode,
-      index: this.index,
+      index: this.journey.arrivedIndex,
+      arrivedIndex: this.journey.arrivedIndex,
+      targetIndex: this.journey.targetIndex,
+      phase: this.journey.phase,
       value: this.value,
       target: this.target(),
       targetDisplay: this.targetDisplay(),
@@ -172,7 +182,7 @@ export class PracticeEngine {
       elapsedSeconds: this.elapsedSeconds(),
       accuracy: this.accuracy(),
       cpm: this.cpm(),
-      typingRatio: this.typingRatio(),
+      typingRatio: this.journey.typingRatio,
       running: this.running,
       locked: this.locked,
       finished: this.finished,

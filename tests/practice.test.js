@@ -15,16 +15,22 @@ test('practice types the next station while the vehicle departs the current stat
   const start = practice.snapshot();
   assert.equal(start.currentStation.name, '起点');
   assert.equal(start.targetStation.name, '海滨浴场');
+  assert.equal(start.arrivedIndex, 0);
+  assert.equal(start.targetIndex, 1);
+  assert.equal(start.phase, 'idle');
   assert.equal(start.target, 'haibinyuchang');
 
   assert.equal(practice.input('q').type, 'invalid');
   assert.equal(practice.input('haibinyuchang').type, 'complete');
   assert.equal(practice.snapshot().typingRatio, 1);
+  assert.equal(practice.snapshot().phase, 'arriving');
   assert.equal(practice.snapshot().currentStation.name, '起点');
 
   assert.equal(practice.advance().finished, false);
   assert.equal(practice.snapshot().currentStation.name, '海滨浴场');
   assert.equal(practice.snapshot().targetStation.name, '终点');
+  assert.equal(practice.snapshot().arrivedIndex, 1);
+  assert.equal(practice.snapshot().targetIndex, 2);
   practice.destroy();
 });
 

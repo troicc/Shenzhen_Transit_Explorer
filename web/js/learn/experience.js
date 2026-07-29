@@ -144,7 +144,9 @@ export class LearnExperience {
 
   async arrive(frame) {
     if (!this.capabilities.arrivalPulse) return;
-    const index = frame?.arrivedOriginalIndex ?? frame?.currentOriginalIndex;
+    const index = frame?.targetOriginalIndex
+      ?? frame?.arrivedOriginalIndex
+      ?? frame?.currentOriginalIndex;
     this.focusRenderer.showArrivalPulse(index);
     if (frame?.mapMode === 'flat') {
       this.camera?.update({progress: frame.routeProgress, reverse: frame.direction === 'reverse', force: true});

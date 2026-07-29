@@ -41,7 +41,8 @@ var/metro/network.json.gz + var/metro/layout.json
 
 `layout.json` 是人工复核覆盖层，不是另一份应用数据。Repository 同时处理旧版线路键迁移、
 正向与反向几何、换乘锚点、联合 revision 和原子保存；Studio、内部练习与公开构建不得各自
-再实现一套布局覆盖逻辑。
+再实现一套布局覆盖逻辑。Studio 保存请求必须携带加载时的 `baseRevision`；若其他页面已经
+保存过新版本，服务端返回 `409 Conflict`，不会覆盖较新的布局。
 
 核心目录：
 
@@ -111,6 +112,12 @@ transit-explorer build all
 transit-explorer build bus --matched-only
 transit-explorer build metro --no-schematic
 
+# 将历史 Zhanyue v3 HTML 校验并暂存为正式分层数据（默认不覆盖 var）
+transit-explorer import zhanyue /path/to/zhanyue.html
+
+# 人工检查 report/layout/language/review 后再显式应用
+transit-explorer import zhanyue /path/to/zhanyue.html --apply
+
 # 内部制作版，默认 http://127.0.0.1:8000
 transit-explorer serve internal
 
@@ -156,7 +163,18 @@ POST /api/metro/studio
 
 Studio 的“保存并预览”会先校验并原子写入 `var/metro/layout.json`，返回新的联合 revision，
 再打开带 revision 的 `/metro/learn`。已打开的练习页会收到布局更新提示；重新载入后首页、
-单线练习和下一次 Public 构建读取完全相同的折点。
+单线练习和下一次 Public 构建读取完全相同的折点。保存采用乐观锁：页面加载的 revision
+与服务器当前 revision 不一致时返回 409，保留浏览器里的草稿供人工处理。
+
+Presentation API 直接给每个站返回 `stationKey` 与 `anchorKey`；Studio 不再复制 Python 的
+站名归一化。浏览器即时预览的 α 站距与单调化集中在 `web/js/authoring/layout-math.js`，并与
+Python 端共用同一组 JSON 数学夹具；最终保存仍由 Python 重新校验路径、progress、锚点和线路键。
+
+历史单文件 HTML 只作为一次性迁移源。`import zhanyue` 会提取 `DATA`、解析 SVG path、把
+逻辑线路与当前 forward route 按站序逐一校验、从 path + progress 重算站点/换乘位置，并对
+同名站拼音、备注和音频 URL 的冲突出具报告。默认产物写入忽略的
+`var/metro/imports/zhanyue-<hash>/`；只有 `--apply` 才会写入正式本机数据，且已有人工语言与
+复核结果优先保留。HTML 本身不会进入运行时，也不得提交为第二数据源。
 
 公交和地铁采集器各自负责目录策略、候选评分和选择字段；页面、运行控制、日志、
 复核布局与构建动作共享同一个前端。
@@ -178,7 +196,8 @@ var/
 │   ├── network.json.gz
 │   └── layout.json
 └── shared/
-    └── language.json
+    ├── language.json
+    └── review.json
 ```
 
 从 2.x 本机目录升级时，可一次性复制已有数据后再运行 `doctor`：
@@ -203,6 +222,11 @@ cp data/metro_schematic_layout.json var/metro/layout.json
 - 输入进度驱动车辆在当前站与下一站之间移动。
 - 已行驶线路精确结束在车辆位置，未来段不会提前高亮。
 - 切换扁平、动画或真实地图只更换 renderer，不重置练习状态。
+
+内部状态使用明确的 `arrivedIndex`（车辆已到达）与 `targetIndex`（当前输入目标）。每次渲染
+生成不可变 `JourneyFrame`，其中同时记录 `segmentStart`、`segmentEnd`、`typingRatio` 和
+`phase`；路线、方向、浏览站、练习模式、地图模式、广播与 presentation revision 由 action
+驱动的 `LearnStore` 持有。Renderer 只消费快照，不自行推断下一站。
 
 这些行为同时由内部 Learn 测试和公开运行时测试覆盖。
 
@@ -263,6 +287,15 @@ Metro Final 使用同一个 SVG 表示翻转封面、完整人工线网和单线
 在车辆中心；镜头具有死区、前方留白和渐进跟随，触控板手势会暂停自动接管。完成全线后
 保持当前线路选中，线路与底图恢复原形，镜头轻微回弹到完整单线，自动跟随停止而手动导航
 立即可用。
+
+Mac 导航由共享 `NavigationController` 统一处理：普通双指滚动平移，`Shift + wheel` 横向
+平移，Chromium `Ctrl + wheel` 以指针为中心缩放，Safari 使用
+`gesturestart/change/end`；`deltaMode` 先标准化，连续输入每帧最多提交一次。手动导航暂停
+镜头，只有下一次行程位置实际变化才恢复跟随。各 Renderer 不再分别注册一套手势。
+
+键入热路径只更新输入反馈、车辆 transform 与已行驶 path；站点状态、标签和目标信标仅在到站、
+标签选项或缩放比例变化时重建。几何缓存键包含 presentation revision、route、direction、
+geometry mode 与 spacing mode，布局更新不会复用旧缓存。
 
 练习可选择普通话全拼、粤拼、自然码/小鹤/微软/搜狗/智能 ABC/拼音加加/紫光双拼，并可打开
 输入框内提示；这些设置保存在浏览器本机。无论输入方案如何，目标始终是车辆当前位置的
@@ -331,7 +364,8 @@ git diff --check
 ```
 
 Python 测试覆盖构建几何、地铁展示合并与 Studio→Learn 闭环、公交/地铁 API 对称性、
-公开双网络发布、构建指纹、派生资产审计和公开服务隔离；Node 测试覆盖学习状态、真实坐标
-拉伸、完成回弹、双拼/粤拼目标、正反向精确进度、真实地图插值、焦点恢复以及公开下一站练习。
+Zhanyue 导入冲突、revision 乐观锁、公开双网络发布、构建指纹、派生资产审计和公开服务隔离；
+Node 测试覆盖显式 Journey 状态、Mac/Safari 导航、真实坐标拉伸、完成回弹、双拼/粤拼目标、
+正反向精确进度、真实地图插值、焦点恢复以及公开下一站练习。
 
 CI 在 Node 20、Python 3.9 和 Python 3.12 上执行同一套检查。

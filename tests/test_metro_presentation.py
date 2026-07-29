@@ -5,7 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from transit_explorer.networks.metro.presentation import MetroPresentationRepository
+from transit_explorer.networks.metro.presentation import (
+    MetroPresentationRepository,
+    PresentationRevisionConflict,
+)
 
 
 def sample_network() -> dict:
@@ -83,6 +86,8 @@ class MetroPresentationRepositoryTests(unittest.TestCase):
                 presentation["directions"]["1"],
                 {"forward": "metro-1:forward", "reverse": "metro-1:reverse"},
             )
+            self.assertEqual(presentation["routes"][0]["stops"][1]["stationKey"], "乙")
+            self.assertEqual(presentation["routes"][0]["stops"][1]["anchorKey"], "乙")
             self.assertTrue(presentation["revision"].startswith("metro-presentation-"))
 
     def test_normalization_migrates_legacy_keys_and_rejects_bad_progress(self) -> None:
@@ -131,6 +136,34 @@ class MetroPresentationRepositoryTests(unittest.TestCase):
             after = repository.revision(sample_network())
             self.assertTrue(layout_path.is_file())
             self.assertNotEqual(before, after)
+
+    def test_revision_checked_save_rejects_a_stale_authoring_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = MetroPresentationRepository(
+                Path(directory) / "unused.json.gz", Path(directory) / "layout.json"
+            )
+            before = repository.revision(sample_network())
+            payload = {
+                "baseRevision": before,
+                "alpha": 0.55,
+                "lines": {
+                    "1": {
+                        "path": [[0, 0], [60, 40], [100, 0]],
+                        "station_progress": [0, 0.5, 1],
+                    }
+                },
+                "anchors": {"乙": {"x": 60, "y": 40}},
+            }
+            saved, after = repository.save_layout_if_revision(
+                payload, sample_network(), "2026-07-29T00:00:00+00:00"
+            )
+            self.assertEqual(saved["saved_at"], "2026-07-29T00:00:00+00:00")
+            self.assertNotEqual(before, after)
+            with self.assertRaises(PresentationRevisionConflict) as context:
+                repository.save_layout_if_revision(
+                    payload, sample_network(), "2026-07-29T00:01:00+00:00"
+                )
+            self.assertEqual(context.exception.current_revision, after)
 
 
 if __name__ == "__main__":

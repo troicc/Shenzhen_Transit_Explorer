@@ -208,6 +208,24 @@ export function immersiveScaleFactor(stationCount, strong = false) {
   return clamp(base + 8 / Math.max(2, stationCount), .50, .72);
 }
 
+export function focusStaticSceneKey({
+  currentOriginalIndex,
+  nextOriginalIndex,
+  reverse,
+  allLabels,
+  journeyActive,
+  unitPerPixel,
+}) {
+  return [
+    currentOriginalIndex,
+    nextOriginalIndex ?? 'end',
+    reverse ? 'reverse' : 'forward',
+    allLabels ? 'all-labels' : 'priority-labels',
+    journeyActive ? 'journey' : 'browse',
+    Number(unitPerPixel || 0).toFixed(6),
+  ].join(':');
+}
+
 export class FocusRenderer {
   constructor({svg, routeLayer, stationLayer, labelLayer, effectLayer, train, stage, onStationClick}) {
     this.svg = svg;
@@ -228,6 +246,7 @@ export class FocusRenderer {
     this.viewAnimationToken = 0;
     this.lastDynamic = null;
     this.lastFollowKey = null;
+    this.lastStaticSceneKey = null;
     this.vehicleScale = 1;
     this.vehicleFacingNode = train.querySelector('.vehicle-facing');
   }
@@ -244,6 +263,7 @@ export class FocusRenderer {
     this.train.setAttribute('opacity', '0');
     this.lastDynamic = null;
     this.lastFollowKey = null;
+    this.lastStaticSceneKey = null;
   }
 
   setRoute(route, geometry, color) {
@@ -265,6 +285,7 @@ export class FocusRenderer {
     this.labelLayer.innerHTML = '';
     if (this.effectLayer) this.effectLayer.innerHTML = '';
     this.lastFollowKey = null;
+    this.lastStaticSceneKey = null;
 
     const data = pathD(geometry.path);
     const base = svgEl('path', {d: data, class: 'route-base'});
@@ -292,6 +313,7 @@ export class FocusRenderer {
   setDisplayGeometry(geometry, {vehicleScale = 1} = {}) {
     if (!this.route || !geometry) return false;
     this.geometry = geometry;
+    this.lastStaticSceneKey = null;
     this.vehicleScale = Number.isFinite(Number(vehicleScale)) ? Number(vehicleScale) : 1;
     const data = pathD(geometry.path);
     [this.basePath, this.mainPath, this.hitPath].forEach(path => path?.setAttribute('d', data));
@@ -492,6 +514,43 @@ export class FocusRenderer {
     this.lastDynamic = {currentOriginalIndex, nextOriginalIndex, reverse, typingRatio, allLabels, journeyActive};
     const rectangle = this.stage.getBoundingClientRect();
     const unitPerPixel = this.view.w / Math.max(1, rectangle.width);
+    const staticKey = focusStaticSceneKey({
+      currentOriginalIndex,
+      nextOriginalIndex,
+      reverse,
+      allLabels,
+      journeyActive,
+      unitPerPixel,
+    });
+    if (staticKey !== this.lastStaticSceneKey) {
+      this.renderStaticScene({
+        currentOriginalIndex,
+        nextOriginalIndex,
+        reverse,
+        allLabels,
+        journeyActive,
+        unitPerPixel,
+      });
+      this.lastStaticSceneKey = staticKey;
+    }
+
+    const startProgress = this.geometry.stationProgresses[currentOriginalIndex] ?? 0;
+    const nextProgress = nextOriginalIndex == null ? startProgress : (this.geometry.stationProgresses[nextOriginalIndex] ?? startProgress);
+    const actualProgress = lerp(startProgress, nextProgress, typingRatio || 0);
+    this.train.dataset.motionRatio = Number(typingRatio || 0).toFixed(4);
+    this.train.dataset.routeProgress = Number(actualProgress).toFixed(6);
+    const traveledPath = reverse
+      ? pathSlice(this.geometry.path, 1, actualProgress)
+      : pathSlice(this.geometry.path, 0, actualProgress);
+    this.progressPath.setAttribute('d', pathD(traveledPath));
+
+    const point = pointAtProgress(this.geometry.path, actualProgress);
+    this.train.setAttribute('transform', `translate(${point[0]} ${point[1]}) scale(${unitPerPixel * this.vehicleScale})`);
+    this.vehicleFacingNode?.removeAttribute('transform');
+    this.train.setAttribute('opacity', '1');
+  }
+
+  renderStaticScene({currentOriginalIndex, nextOriginalIndex, reverse, allLabels, journeyActive, unitPerPixel}) {
     const stationRadius = 4.4 * unitPerPixel;
     const currentRadius = 7.8 * unitPerPixel;
     const terminalRadius = 6.4 * unitPerPixel;
@@ -509,21 +568,6 @@ export class FocusRenderer {
         : (index === 0 || index === this.route.stops.length - 1) ? terminalRadius : stationRadius;
       item.circle.setAttribute('r', radius);
     });
-
-    const startProgress = this.geometry.stationProgresses[currentOriginalIndex] ?? 0;
-    const nextProgress = nextOriginalIndex == null ? startProgress : (this.geometry.stationProgresses[nextOriginalIndex] ?? startProgress);
-    const actualProgress = lerp(startProgress, nextProgress, typingRatio || 0);
-    this.train.dataset.motionRatio = Number(typingRatio || 0).toFixed(4);
-    this.train.dataset.routeProgress = Number(actualProgress).toFixed(6);
-    const traveledPath = reverse
-      ? pathSlice(this.geometry.path, 1, actualProgress)
-      : pathSlice(this.geometry.path, 0, actualProgress);
-    this.progressPath.setAttribute('d', pathD(traveledPath));
-
-    const point = pointAtProgress(this.geometry.path, actualProgress);
-    this.train.setAttribute('transform', `translate(${point[0]} ${point[1]}) scale(${unitPerPixel * this.vehicleScale})`);
-    this.vehicleFacingNode?.removeAttribute('transform');
-    this.train.setAttribute('opacity', '1');
 
     this.labelLayer.innerHTML = '';
     const labels = layoutStationLabels({
@@ -578,9 +622,9 @@ export class FocusRenderer {
       }
     }
 
+    this.stationLayer.querySelectorAll('.station-ring').forEach(node => node.remove());
     const currentNode = this.stationNodes[currentOriginalIndex]?.group;
-    if (currentNode && !currentNode.querySelector('.station-ring')) {
-      this.stationLayer.querySelectorAll('.station-ring').forEach(node => node.remove());
+    if (currentNode) {
       const center = this.geometry.stationPoints[currentOriginalIndex];
       const ring = svgEl('circle', {class: 'station-ring', cx: center[0], cy: center[1], r: 8 * unitPerPixel});
       currentNode.prepend(ring);

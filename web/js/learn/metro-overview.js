@@ -268,7 +268,7 @@ export class MetroSchematicOverviewRenderer {
   panByPixels(dx, dy) {
     const rectangle = this.stage.getBoundingClientRect();
     this.view.x -= dx / Math.max(1, rectangle.width) * this.view.w;
-    this.view.y -= (this.flipped ? -dy : dy) / Math.max(1, rectangle.height) * this.view.h;
+    this.view.y -= dy / Math.max(1, rectangle.height) * this.view.h;
     this.applyView();
   }
 

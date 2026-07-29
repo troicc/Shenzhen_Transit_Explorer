@@ -1,6 +1,7 @@
-import {$, clamp, damp, debounce, escapeHtml, lerp, normalizePinyin, routeColor, showToast, travelIndex} from './core.js?v=3';
+import {$, clamp, damp, debounce, escapeHtml, normalizePinyin, routeColor, showToast, travelIndex} from './core.js?v=3';
 import {transitApi} from './api.js';
-import {buildRouteGeometry} from './geometry.js';
+import {buildRouteGeometry, routeGeometryCacheKey} from './geometry.js';
+import {createJourneyFrame} from './journey.js';
 import {deleteLocalAudio, getLocalAudio, putLocalAudio, StationAudioPlayer} from './audio.js';
 import {LearnExperience} from './experience.js';
 import {
@@ -14,8 +15,10 @@ import {learnProduct} from './product.js';
 import {RealMapFocusRenderer} from './real-map.js?v=3';
 import {FocusRenderer, OverviewRenderer} from './renderers.js?v=3';
 import {MetroSchematicOverviewRenderer} from './metro-overview.js';
+import {NavigationController} from './navigation-controller.js';
 import {RouteStretchController} from './route-stretch.js';
 import {spellingLabel, spellingTarget, VALID_SPELLING_SCHEMES} from './spelling.js';
+import {LearnStore} from './store.js';
 import {restoreTypingFocus} from './typing-focus.js?v=3';
 
 const product = learnProduct(transitApi.networkType);
@@ -44,6 +47,7 @@ function savePracticePreferences() {
 }
 
 const practicePreferences = loadPracticePreferences();
+const learnStore = new LearnStore();
 const elements = {
   app: $('#app'), stage: $('#mapStage'), flipScene: $('#learnFlipScene'), canvas: $('#networkCanvas'), svg: $('#focusSvg'), realMap: $('#realMap'),
   routeLayer: $('#routeLayer'), stationLayer: $('#stationLayer'), labelLayer: $('#labelLayer'), effectLayer: $('#effectLayer'), train: $('#vehicle'),
@@ -60,28 +64,18 @@ const elements = {
 const state = {
   overview: null,
   presentation: null,
-  presentationRevision: null,
   networkType: transitApi.networkType,
-  route: null,
   color: '#5cc8ff',
   schematic: true,
   balanced: true,
   allLabels: false,
-  reverse: false,
-  browseIndex: 0,
-  mode: 'overview',
   geometryCache: new Map(),
   pendingStationName: null,
   loadingRouteToken: 0,
   broadcastToken: 0,
-  broadcasting: false,
-  dragging: false,
-  moved: false,
-  lastPointer: [0, 0],
   activeSearchIndex: -1,
   searchItems: [],
   stationCompletionToken: 0,
-  viewMode: 'flat',
   mapReady: false,
   runtime: null,
   experienceProfile: fallbackExperienceProfile(transitApi.networkType),
@@ -95,6 +89,15 @@ const state = {
   spellingScheme: practicePreferences.spellingScheme,
   inlineHint: practicePreferences.inlineHint,
 };
+Object.defineProperties(state, {
+  route: {get: () => learnStore.getState().route},
+  reverse: {get: () => learnStore.getState().direction === 'reverse'},
+  browseIndex: {get: () => learnStore.getState().browseIndex},
+  mode: {get: () => learnStore.getState().practiceMode},
+  viewMode: {get: () => learnStore.getState().viewMode},
+  broadcasting: {get: () => learnStore.getState().broadcasting},
+  presentationRevision: {get: () => learnStore.getState().presentationRevision},
+});
 
 const overviewRenderer = state.networkType === 'metro'
   ? new MetroSchematicOverviewRenderer({
@@ -137,6 +140,39 @@ const experience = new LearnExperience({
   stretchController,
   reducedMotion,
 });
+const navigationAdapter = {
+  panByPixels(dx, dy) {
+    (state.route ? focusRenderer : overviewRenderer).panByPixels(dx, dy);
+  },
+  zoomAt(x, y, factor) {
+    (state.route ? focusRenderer : overviewRenderer).zoomAt(x, y, factor);
+  },
+  beginManualNavigation() {
+    if (state.route) focusRenderer.beginManualNavigation();
+  },
+  endManualNavigation() {
+    if (state.route) focusRenderer.endManualNavigation();
+  },
+};
+const navigationController = new NavigationController({
+  target: elements.stage,
+  renderer: navigationAdapter,
+  enabled: () => state.viewMode === 'flat',
+  isFlipped: () => !state.route && Boolean(overviewRenderer.flipped),
+  onTap: event => {
+    if (state.route) return;
+    const route = overviewRenderer.nearestRoute(event.clientX, event.clientY);
+    if (route) selectRoute(route.id);
+  },
+  onInteractionStart: source => {
+    document.body.classList.add('is-map-navigating');
+    document.body.classList.toggle('is-panning', source === 'pointer');
+    if (state.route) experience.suspendForManualNavigation();
+  },
+  onInteractionEnd: () => {
+    document.body.classList.remove('is-map-navigating', 'is-panning');
+  },
+});
 const practice = new PracticeEngine({
   onChange: snapshot => renderPractice(snapshot),
   onFinish: snapshot => showResult(snapshot),
@@ -159,7 +195,7 @@ function displayStops() {
 }
 
 function displayIndex() {
-  return state.mode === 'timed' || state.mode === 'full' ? practice.index : state.browseIndex;
+  return state.mode === 'timed' || state.mode === 'full' ? practice.snapshot().arrivedIndex : state.browseIndex;
 }
 
 function originalIndexFromDisplay(index = displayIndex()) {
@@ -182,7 +218,11 @@ function nextStation() {
 
 function currentGeometry() {
   if (!state.route) return null;
-  const key = `${state.route.id}:${state.schematic ? 's' : 'g'}:${state.balanced ? 'b' : 'd'}`;
+  const key = routeGeometryCacheKey(state.route, {
+    revision: state.route.presentation_revision || state.presentationRevision,
+    schematic: state.schematic,
+    balanced: state.balanced,
+  });
   if (!state.geometryCache.has(key)) {
     state.geometryCache.set(key, buildRouteGeometry(state.route, {schematic: state.schematic, balanced: state.balanced}));
   }
@@ -268,7 +308,7 @@ function updateViewControls() {
 async function setViewMode(mode) {
   if (!state.route) return;
   if (mode === 'flat') {
-    state.viewMode = 'flat';
+    learnStore.dispatch({type: 'VIEW_CHANGED', mode: 'flat'});
     realMapRenderer.hide();
     updateAppClasses();
     updateViewControls();
@@ -288,12 +328,12 @@ async function setViewMode(mode) {
   try {
     await realMapRenderer.show(state.route, state.color, mode);
     if (!state.route || state.route.id !== routeId) return;
-    state.viewMode = mode;
+    learnStore.dispatch({type: 'VIEW_CHANGED', mode});
     updateAppClasses();
     updateViewControls();
     renderDynamic();
   } catch (error) {
-    state.viewMode = 'flat';
+    learnStore.dispatch({type: 'VIEW_CHANGED', mode: 'flat'});
     realMapRenderer.hide();
     updateAppClasses();
     updateViewControls();
@@ -329,19 +369,15 @@ async function selectRoute(routeId, stationName = null) {
     if (token !== state.loadingRouteToken) return;
     stopBroadcast(true);
     practice.reset();
-    state.route = route;
+    learnStore.dispatch({type: 'ROUTE_SELECTED', route});
     state.color = route.color || routeColor(route.route_no);
-    state.reverse = false;
-    state.viewMode = 'flat';
-    state.mode = 'overview';
-    state.browseIndex = 0;
     state.pendingStationName = stationName;
     state.geometryCache.clear();
     realMapRenderer.hide();
     if (enteringFromOverview) experience.setFace('overview');
     if (stationName) {
       const index = route.stops.findIndex(stop => stop.name === stationName);
-      if (index >= 0) state.browseIndex = index;
+      if (index >= 0) learnStore.dispatch({type: 'BROWSE_CHANGED', index});
     }
     overviewRenderer.setFocused(true, route.id);
     overviewRenderer.view = {...overviewRenderer.homeView};
@@ -375,20 +411,17 @@ async function clearSelection() {
   stopBroadcast(true);
   stopJourneyMotion();
   practice.reset();
-  state.mode = 'overview';
+  learnStore.dispatch({type: 'PRACTICE_EXITED'});
   elements.practicePanel.classList.remove('visible');
   elements.reviewDrawer.classList.remove('visible');
   elements.resultModal.classList.remove('visible');
   setActiveMode('overview');
-  state.viewMode = 'flat';
+  learnStore.dispatch({type: 'VIEW_CHANGED', mode: 'flat'});
   realMapRenderer.hide();
   updateAppClasses();
   await experience.returnOverview(journeyFrame(0));
   if (token !== state.loadingRouteToken) return;
-  state.route = null;
-  state.browseIndex = 0;
-  state.reverse = false;
-  state.viewMode = 'flat';
+  learnStore.dispatch({type: 'ROUTE_CLEARED'});
   focusRenderer.clear();
   realMapRenderer.hide();
   elements.intro.classList.remove('hidden');
@@ -406,7 +439,7 @@ function selectStationByOriginalIndex(originalIndex) {
     showToast('练习中不能跳站，按 Esc 可退出练习');
     return;
   }
-  state.browseIndex = displayIndexFromOriginal(originalIndex);
+  learnStore.dispatch({type: 'BROWSE_CHANGED', index: displayIndexFromOriginal(originalIndex)});
   renderDynamic();
 }
 
@@ -462,31 +495,24 @@ function stopJourneyMotion(ratio = 0, key = null) {
 
 function journeyFrame(typingRatio, overrides = {}) {
   const index = displayIndex();
-  const originalIndex = originalIndexFromDisplay(index);
   const nextDisplay = index + 1 < state.route.stops.length ? index + 1 : null;
-  const nextOriginal = nextDisplay == null ? null : originalIndexFromDisplay(nextDisplay);
   const geometry = currentGeometry();
-  const startProgress = geometry.stationProgresses[originalIndex] ?? 0;
-  const nextProgress = nextOriginal == null ? startProgress : (geometry.stationProgresses[nextOriginal] ?? startProgress);
-  const ratio = clamp(Number(typingRatio) || 0, 0, 1);
-  return {
+  const active = (state.mode === 'timed' || state.mode === 'full') && practice.running;
+  return createJourneyFrame({
     network: state.networkType,
-    routeId: state.route.id,
     route: state.route,
     direction: state.reverse ? 'reverse' : 'forward',
-    currentDisplayIndex: index,
-    currentOriginalIndex: originalIndex,
-    nextDisplayIndex: nextDisplay,
-    nextOriginalIndex: nextOriginal,
-    reverse: state.reverse,
-    typingRatio: ratio,
-    routeProgress: lerp(startProgress, nextProgress, ratio),
+    arrivedIndex: index,
+    targetIndex: nextDisplay,
+    typingRatio,
+    geometry,
     allLabels: state.allLabels,
-    journeyActive: (state.mode === 'timed' || state.mode === 'full') && practice.running,
+    journeyActive: active,
     practiceMode: state.mode,
     mapMode: state.viewMode,
-    ...overrides,
-  };
+    phase: active ? practice.snapshot().phase : 'idle',
+    overrides,
+  });
 }
 
 function renderJourneyFrame(typingRatio) {
@@ -549,8 +575,7 @@ async function setMode(mode) {
     return;
   }
   stopBroadcast(true);
-  state.mode = mode;
-  state.browseIndex = 0;
+  learnStore.dispatch({type: 'PRACTICE_STARTED', mode});
   stopJourneyMotion();
   practice.start(displayStops(), mode);
   elements.practicePanel.classList.add('visible');
@@ -567,7 +592,7 @@ function exitPractice() {
   ++state.stationCompletionToken;
   stopJourneyMotion();
   practice.reset();
-  state.mode = 'overview';
+  learnStore.dispatch({type: 'PRACTICE_EXITED'});
   elements.practicePanel.classList.remove('visible');
   setActiveMode('overview');
   updateAppClasses();
@@ -691,11 +716,9 @@ async function handleTypingInput() {
     audioPlayer.playStation(station).catch(() => {});
     await new Promise(resolve => setTimeout(resolve, 430));
     if (completionToken !== state.stationCompletionToken || practice.finished) return;
-    const arrivedDisplayIndex = Math.min(practice.index + 1, state.route.stops.length - 1);
-    const arrivedOriginalIndex = originalIndexFromDisplay(arrivedDisplayIndex);
     stopJourneyMotion(1, state.journeyMotionKey);
     renderJourneyFrame(1);
-    await experience.arrive(journeyFrame(1, {arrivedOriginalIndex, forceCamera: true}));
+    await experience.arrive(journeyFrame(1, {forceCamera: true}));
     if (completionToken !== state.stationCompletionToken || practice.finished) return;
     const advanced = practice.advance();
     elements.typingInput.value = '';
@@ -728,24 +751,24 @@ async function startBroadcast() {
   if (!state.route || state.broadcasting) return;
   if (state.mode === 'timed' || state.mode === 'full') {
     practice.reset();
-    state.mode = 'overview';
+    learnStore.dispatch({type: 'PRACTICE_EXITED'});
     elements.practicePanel.classList.remove('visible');
     setActiveMode('overview');
     updateAppClasses();
     experience.leavePractice(journeyFrame(0));
   }
-  state.broadcasting = true;
+  learnStore.dispatch({type: 'BROADCAST_CHANGED', broadcasting: true});
   const token = ++state.broadcastToken;
   renderCards();
   const stops = displayStops();
   for (let index = 0; index < stops.length && state.broadcasting && token === state.broadcastToken; index += 1) {
-    state.browseIndex = index;
+    learnStore.dispatch({type: 'BROWSE_CHANGED', index});
     renderDynamic();
     try { await audioPlayer.playStation(stops[index]); } catch (_) {}
     await new Promise(resolve => setTimeout(resolve, 240));
   }
   if (token === state.broadcastToken) {
-    state.broadcasting = false;
+    learnStore.dispatch({type: 'BROADCAST_CHANGED', broadcasting: false});
     renderCards();
     showToast('全线播报完成');
   }
@@ -753,7 +776,7 @@ async function startBroadcast() {
 
 function stopBroadcast(silent = false) {
   if (!state.broadcasting && !audioPlayer.audio) return;
-  state.broadcasting = false;
+  learnStore.dispatch({type: 'BROADCAST_CHANGED', broadcasting: false});
   state.broadcastToken += 1;
   audioPlayer.stop();
   renderCards();
@@ -764,12 +787,16 @@ function toggleReverse() {
   if (!state.route) return;
   const stationName = currentStation()?.name;
   const currentOriginal = state.route.stops.findIndex(stop => stop.name === stationName);
-  state.reverse = !state.reverse;
-  const newDisplay = displayIndexFromOriginal(Math.max(0, currentOriginal));
+  const direction = state.reverse ? 'forward' : 'reverse';
+  const newDisplay = travelIndex(
+    Math.max(0, currentOriginal),
+    state.route.stops.length,
+    direction === 'reverse',
+  );
+  learnStore.dispatch({type: 'DIRECTION_CHANGED', direction, browseIndex: newDisplay});
   if (state.mode === 'timed' || state.mode === 'full') {
     setMode(state.mode);
   } else {
-    state.browseIndex = newDisplay;
     renderDynamic();
   }
 }
@@ -869,8 +896,8 @@ async function saveLanguage() {
 
 function restartPractice() {
   elements.resultModal.classList.remove('visible');
-  if (state.mode !== 'timed' && state.mode !== 'full') state.mode = 'timed';
-  setMode(state.mode);
+  const mode = state.mode === 'timed' || state.mode === 'full' ? state.mode : 'timed';
+  setMode(mode);
 }
 
 function randomRoute() {
@@ -981,55 +1008,6 @@ $('#restartButton').addEventListener('click', restartPractice);
 $('#resultHomeButton').addEventListener('click', clearSelection);
 elements.reloadLayoutButton.addEventListener('click', () => window.location.reload());
 
-// Pointer navigation
-elements.stage.addEventListener('pointerdown', event => {
-  if (event.button !== 0 || state.viewMode === 'animated' || state.viewMode === 'real') return;
-  if (state.route) {
-    focusRenderer.beginManualNavigation();
-    experience.suspendForManualNavigation();
-  }
-  state.dragging = true;
-  state.moved = false;
-  state.lastPointer = [event.clientX, event.clientY];
-  elements.stage.setPointerCapture?.(event.pointerId);
-  document.body.classList.add('is-panning');
-});
-elements.stage.addEventListener('pointermove', event => {
-  if (!state.dragging) return;
-  const dx = event.clientX - state.lastPointer[0];
-  const dy = event.clientY - state.lastPointer[1];
-  if (Math.abs(dx) + Math.abs(dy) > 2) state.moved = true;
-  if (state.route) focusRenderer.panByPixels(dx, dy);
-  else overviewRenderer.panByPixels(dx, dy);
-  state.lastPointer = [event.clientX, event.clientY];
-});
-elements.stage.addEventListener('pointerup', event => {
-  if (!state.dragging) return;
-  state.dragging = false;
-  if (state.route) focusRenderer.endManualNavigation();
-  document.body.classList.remove('is-panning');
-  if (!state.moved && !state.route) {
-    const route = overviewRenderer.nearestRoute(event.clientX, event.clientY);
-    if (route) selectRoute(route.id);
-  }
-});
-elements.stage.addEventListener('pointercancel', () => {
-  state.dragging = false;
-  focusRenderer.endManualNavigation();
-  document.body.classList.remove('is-panning');
-});
-elements.stage.addEventListener('wheel', event => {
-  if (state.viewMode === 'animated' || state.viewMode === 'real') return;
-  event.preventDefault();
-  if (state.route) {
-    focusRenderer.beginManualNavigation();
-    experience.suspendForManualNavigation();
-  }
-  const factor = Math.exp(event.deltaY * .0012);
-  if (state.route) focusRenderer.zoomAt(event.clientX, event.clientY, factor);
-  else overviewRenderer.zoomAt(event.clientX, event.clientY, factor);
-}, {passive: false});
-
 window.addEventListener('resize', () => {
   overviewRenderer.resize();
   if (state.route) fitCurrentExperience({animate: false});
@@ -1110,7 +1088,7 @@ async function init() {
     ]);
     state.overview = overview;
     state.presentation = presentation;
-    state.presentationRevision = presentation?.revision || null;
+    learnStore.dispatch({type: 'PRESENTATION_LOADED', revision: presentation?.revision || null});
     state.runtime = runtime;
     state.mapReady = Boolean(runtime.amap?.map_ready);
     state.allowExperienceOverride = userExperienceOverrideAllowed(runtime);
@@ -1139,6 +1117,7 @@ async function init() {
 
 window.addEventListener('pagehide', () => {
   layoutChannel?.close();
+  navigationController.destroy();
   experience.destroy();
   overviewRenderer.destroy?.();
 }, {once: true});

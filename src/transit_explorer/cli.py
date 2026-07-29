@@ -16,9 +16,10 @@ from .networks.bus.config import DB_PATH as BUS_DB
 from .networks.bus.config import NETWORK_PATH as BUS_NETWORK
 from .networks.metro import builder as metro_builder
 from .networks.metro.config import DB_PATH as METRO_DB
+from .networks.metro.config import LAYOUT_PATH as METRO_LAYOUT
 from .networks.metro.config import NETWORK_PATH as METRO_NETWORK
 from .networks.metro.config import OFFICIAL_PATH as METRO_CATALOG
-from .settings import PROJECT_ROOT, PUBLIC_DIR, VAR_DIR
+from .settings import LANGUAGE_PATH, PROJECT_ROOT, PUBLIC_DIR, REVIEW_PATH, VAR_DIR
 
 
 def _emit(payload: Dict[str, Any]) -> None:
@@ -77,6 +78,65 @@ def publish(network: Optional[str]) -> int:
     return 0
 
 
+def import_zhanyue(
+    html_path: Path,
+    network_path: Path,
+    output_dir: Optional[Path],
+    line_map_path: Optional[Path],
+    apply: bool,
+) -> int:
+    from .features.import_zhanyue import (
+        ZhanyueImportError,
+        apply_import_bundle,
+        build_zhanyue_import,
+        write_import_bundle,
+    )
+
+    line_map: Dict[str, str] = {}
+    if line_map_path:
+        try:
+            raw_map = json.loads(line_map_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            _emit({"ok": False, "error": "线路映射文件无法读取：{}".format(exc)})
+            return 2
+        if not isinstance(raw_map, dict):
+            _emit({"ok": False, "error": "线路映射文件必须是 JSON 对象"})
+            return 2
+        line_map = {str(key): str(value) for key, value in raw_map.items()}
+    try:
+        bundle = build_zhanyue_import(html_path, network_path, line_map=line_map)
+    except ZhanyueImportError as exc:
+        _emit({"ok": False, "error": str(exc), "report": exc.report})
+        return 2
+
+    source_hash = bundle["report"]["source"]["sha256"][:12]
+    destination = output_dir or (VAR_DIR / "metro" / "imports" / "zhanyue-{}".format(source_hash))
+    paths = write_import_bundle(bundle, destination)
+    application = None
+    if apply:
+        application = apply_import_bundle(
+            bundle,
+            layout_path=METRO_LAYOUT,
+            language_path=LANGUAGE_PATH,
+            review_path=REVIEW_PATH,
+        )
+    _emit(
+        {
+            "ok": True,
+            "mode": "applied" if apply else "staged",
+            "summary": bundle["report"]["summary"],
+            "artifacts": paths,
+            "application": application,
+            "next": (
+                "已写入内部数据；重新载入 Studio/Learn 进行人工复核"
+                if apply
+                else "先检查 report/layout/language/review，再加 --apply 写入内部数据"
+            ),
+        }
+    )
+    return 0
+
+
 def serve(edition: str, host: Optional[str], port: Optional[int], reload: bool) -> int:
     import uvicorn
 
@@ -107,6 +167,15 @@ def parser() -> argparse.ArgumentParser:
     publish_parser.add_argument("edition", choices=["public"])
     publish_parser.add_argument("--network", choices=["bus", "metro"])
 
+    import_parser = commands.add_parser("import", help="从历史交付物迁移并校验数据")
+    import_formats = import_parser.add_subparsers(dest="import_format", required=True)
+    zhanyue_parser = import_formats.add_parser("zhanyue", help="迁移 Zhanyue v3 单文件 HTML")
+    zhanyue_parser.add_argument("html", type=Path)
+    zhanyue_parser.add_argument("--network", type=Path, default=METRO_NETWORK, help="用于站序校验的地铁线网")
+    zhanyue_parser.add_argument("--line-map", type=Path, help="可选的 source id 到逻辑线路键 JSON")
+    zhanyue_parser.add_argument("--output", type=Path, help="校验产物目录；默认写入 var/metro/imports")
+    zhanyue_parser.add_argument("--apply", action="store_true", help="复核后写入 layout/language/review")
+
     serve_parser = commands.add_parser("serve", help="启动内部制作版或公开只读版")
     serve_parser.add_argument("edition", choices=["internal", "public"])
     serve_parser.add_argument("--host")
@@ -123,6 +192,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return build_networks(args.network, args.matched_only, args.no_schematic)
     if args.command == "publish":
         return publish(args.network)
+    if args.command == "import":
+        if args.import_format == "zhanyue":
+            return import_zhanyue(args.html, args.network, args.output, args.line_map, args.apply)
+        raise AssertionError("unreachable")
     if args.command == "serve":
         return serve(args.edition, args.host, args.port, args.reload)
     raise AssertionError("unreachable")

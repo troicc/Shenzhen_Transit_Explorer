@@ -27,6 +27,14 @@ from .matcher import normalize_name
 Point = List[float]
 
 
+class PresentationRevisionConflict(RuntimeError):
+    """Raised when an authoring save is based on a stale presentation."""
+
+    def __init__(self, current_revision: str):
+        super().__init__("地铁布局已被其他页面更新，请重新载入后再保存")
+        self.current_revision = current_revision
+
+
 _REGION_LABELS = (
     ("宝安", 0.1406, 0.2040, "district"),
     ("南山", 0.2438, 0.7360, "district"),
@@ -334,12 +342,16 @@ class MetroPresentationRepository:
                 continue
             stops = []
             for index, stop in enumerate(route.get("stops", [])):
-                anchor = anchors.get(normalize_name(str(stop.get("name", "")))) or {}
+                station_key = normalize_name(str(stop.get("name", "")))
+                anchor_key = station_key if station_key in anchors else None
+                anchor = anchors.get(station_key) or {}
                 line_count = max(1, len(anchor.get("lines", [])), int(stop.get("lineCount", 1) or 1))
                 stops.append(
                     {
                         "name": stop.get("name"),
                         "index": index,
+                        "stationKey": station_key,
+                        "anchorKey": anchor_key,
                         "transfer": line_count > 1,
                         "lineCount": line_count,
                     }
@@ -429,26 +441,62 @@ class MetroPresentationRepository:
             if x is None or y is None or abs(x) > 10_000_000 or abs(y) > 10_000_000:
                 raise ValueError("换乘锚点 {} 坐标无效".format(key))
             anchors[str(key)] = {"x": x, "y": y}
-        return {"key_version": 2, "alpha": alpha, "lines": lines, "anchors": anchors}
+        result: Dict[str, Any] = {"key_version": 2, "alpha": alpha, "lines": lines, "anchors": anchors}
+        source = payload.get("source")
+        if source is None:
+            source = self._load_layout().get("source")
+        if source is not None:
+            if not isinstance(source, Mapping):
+                raise ValueError("source 必须是有效来源对象")
+            allowed = {"format", "sha256", "mapVersion", "sourceDate", "importedAt"}
+            cleaned = {
+                str(key): str(value)[:300]
+                for key, value in source.items()
+                if key in allowed and value is not None
+            }
+            if cleaned:
+                result["source"] = cleaned
+        return result
 
     def save_layout(self, layout: Mapping[str, Any]) -> None:
-        self.layout_path.parent.mkdir(parents=True, exist_ok=True)
-        encoded = json.dumps(layout, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix="layout-", suffix=".json.tmp", dir=str(self.layout_path.parent)
-        )
-        try:
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(encoded)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary_name, self.layout_path)
-        finally:
+        with self._lock:
+            self.layout_path.parent.mkdir(parents=True, exist_ok=True)
+            encoded = json.dumps(layout, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix="layout-", suffix=".json.tmp", dir=str(self.layout_path.parent)
+            )
             try:
-                os.unlink(temporary_name)
-            except FileNotFoundError:
-                pass
-        self.invalidate()
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary_name, self.layout_path)
+            finally:
+                try:
+                    os.unlink(temporary_name)
+                except FileNotFoundError:
+                    pass
+            self.invalidate()
+
+    def save_layout_if_revision(
+        self,
+        payload: Mapping[str, Any],
+        base_network: Dict[str, Any],
+        saved_at: str,
+    ) -> Tuple[Dict[str, Any], str]:
+        """Validate and save while holding the same lock as the revision check."""
+
+        with self._lock:
+            base_revision = str(payload.get("baseRevision") or "").strip()
+            if not base_revision:
+                raise ValueError("baseRevision 不能为空")
+            current_revision = self.revision(base_network)
+            if base_revision != current_revision:
+                raise PresentationRevisionConflict(current_revision)
+            data = self.normalize_layout(payload, base_network)
+            data["saved_at"] = saved_at
+            self.save_layout(data)
+            return data, self.revision(base_network)
 
 
 presentation_repository = MetroPresentationRepository()

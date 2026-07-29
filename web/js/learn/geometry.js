@@ -2,6 +2,19 @@ import {
   bboxOf, clamp, distance, pathMetrics, pointAtProgress, pointSegmentDistance,
 } from './core.js';
 
+export function routeGeometryCacheKey(route, {
+  revision,
+  schematic = true,
+  balanced = true,
+} = {}) {
+  const version = revision || route?.presentation_revision || route?.built_at || 'unversioned';
+  const routeId = route?.id || 'no-route';
+  const direction = route?.direction || (String(routeId).endsWith(':reverse') ? 'reverse' : 'forward');
+  const geometryMode = schematic ? 'schematic' : 'geographic';
+  const spacingMode = balanced ? 'balanced' : 'distance';
+  return `${version}:${routeId}:${direction}:${geometryMode}:${spacingMode}`;
+}
+
 function rdp(points, tolerance) {
   if (points.length <= 2) return points.map(point => point.slice());
   let farthest = 0;

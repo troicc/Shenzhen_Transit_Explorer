@@ -2,6 +2,11 @@
 // 复用共享学习前端的几何原语，保证与 Python 端同算法。
 import { clamp, svgEl, distance, pointAtProgress, pathMetrics, pathD, showToast } from '/static/js/learn/core.js';
 import { projectPointToPath } from '/static/js/learn/geometry.js';
+import {
+  monotonizeProgress,
+  nearestVertex,
+  reflowStationProgress,
+} from '/static/js/authoring/layout-math.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -13,16 +18,6 @@ const handleLayer = $('#handleLayer');
 const stationLayer = $('#stationLayer');
 const anchorLayer = $('#anchorLayer');
 const labelLayer = $('#labelLayer');
-
-// 换乘锚点站名归一化，须与 Python matcher.normalize_name 一致
-function normName(value) {
-  let t = String(value || '').normalize('NFKC').trim().toLowerCase();
-  t = t.replace(/[\s·•・（）()【】\[\]_-]+/g, '');
-  for (const tok of ['深圳市', '深圳地铁', '地铁站', '地铁', '站']) t = t.split(tok).join('');
-  if (t === '深圳北站') t = '深圳北';
-  if (t === '机场北站') t = '机场北';
-  return t;
-}
 
 const state = {
   lines: [],            // forward routes
@@ -109,22 +104,12 @@ function stationPos(line, idx) {
   return pointAtProgress(line.schematic.path, line.schematic.station_progress[idx]);
 }
 
-function nearestVertex(path, pos) {
-  let best = 0;
-  let bd = Infinity;
-  for (let i = 0; i < path.length; i++) {
-    const d = (path[i][0] - pos[0]) ** 2 + (path[i][1] - pos[1]) ** 2;
-    if (d < bd) { bd = d; best = i; }
-  }
-  return { index: best, dist: Math.sqrt(bd) };
-}
-
 function buildAnchorLinks() {
   state.anchorLinks = {};
   for (const [key, anchor] of Object.entries(state.anchors)) {
     state.anchorLinks[key] = [];
     for (const line of state.lines) {
-      const stopIdx = line.stops.findIndex((s) => normName(s.name) === key);
+      const stopIdx = line.stops.findIndex((s) => s.anchorKey === key);
       if (stopIdx < 0) continue;
       const pos = stationPos(line, stopIdx);
       const nv = nearestVertex(line.schematic.path, pos);
@@ -133,47 +118,16 @@ function buildAnchorLinks() {
   }
 }
 
-function monotonize(progress) {
-  for (let i = 1; i < progress.length; i++) progress[i] = Math.max(progress[i], progress[i - 1] + 1e-9);
-  progress[progress.length - 1] = 1;
-  return progress;
-}
-
 // α 混合重排站距（与 Python _route_schematic 同算法）
 function reflowAlpha(alpha) {
   state.alpha = alpha;
   for (const line of state.lines) {
-    const path = line.schematic.path;
-    const stops = line.stops;
-    const n = stops.length;
-    const sp = new Array(n).fill(0);
-    const anchorIdx = [];
-    for (let i = 0; i < n; i++) {
-      const key = normName(stops[i].name);
-      if (i === 0 || i === n - 1 || state.anchors[key]) anchorIdx.push(i);
-    }
-    const arcOf = anchorIdx.map((idx) => {
-      const key = normName(stops[idx].name);
-      const pos = state.anchors[key] ? [state.anchors[key].x, state.anchors[key].y]
-        : idx === 0 ? path[0] : path[path.length - 1];
-      return projectPointToPath(path, pos).progress;
+    line.schematic.station_progress = reflowStationProgress({
+      path: line.schematic.path,
+      stops: line.stops,
+      anchors: state.anchors,
+      alpha,
     });
-    for (let k = 0; k < anchorIdx.length - 1; k++) {
-      const aIdx = anchorIdx[k];
-      const bIdx = anchorIdx[k + 1];
-      const rpA = stops[aIdx].progress;
-      const rpB = stops[bIdx].progress;
-      const arcA = arcOf[k];
-      const arcB = arcOf[k + 1];
-      const spanLen = bIdx - aIdx + 1;
-      for (let j = 0; j < spanLen; j++) {
-        const sidx = aIdx + j;
-        const realRel = rpB > rpA ? clamp((stops[sidx].progress - rpA) / (rpB - rpA), 0, 1) : 0;
-        const evenRel = spanLen > 1 ? j / (spanLen - 1) : 0;
-        sp[sidx] = arcA + (alpha * realRel + (1 - alpha) * evenRel) * (arcB - arcA);
-      }
-    }
-    line.schematic.station_progress = monotonize(sp);
   }
 }
 
@@ -230,7 +184,7 @@ function renderStations() {
     const isSel = state.selected && state.selected.id === line.id;
     stationEls[line.id] = [];
     for (let i = 0; i < line.stops.length; i++) {
-      const key = normName(line.stops[i].name);
+      const key = line.stops[i].anchorKey;
       const isTransfer = !!state.anchors[key];
       const [x, y] = stationPos(line, i);
       const sel = state.selected && state.selected.type === 'station' && state.selected.id === line.id && state.selected.idx === i;
@@ -379,7 +333,7 @@ function renderInspector() {
   } else if (s.type === 'station') {
     const line = lineById(s.id);
     const st = line.stops[s.idx];
-    const key = normName(st.name);
+    const key = st.anchorKey;
     body.innerHTML = `<div style="font-weight:600;font-size:14px">${st.name}</div>
       <dl><dt>线路</dt><dd>${line.route_no}</dd>
       <dt>换乘</dt><dd>${state.anchors[key] ? '是' : '否'}</dd>
@@ -515,7 +469,7 @@ stage.addEventListener('pointermove', (evt) => {
       if (!line) continue;
       line.schematic.path[link.vIdx] = [wx, wy];
       line.schematic.station_progress[link.stopIdx] = projectPointToPath(line.schematic.path, [wx, wy]).progress;
-      monotonize(line.schematic.station_progress);
+      line.schematic.station_progress = monotonizeProgress(line.schematic.station_progress);
       updateLineGeometry(line);
     }
     updateAnchorNode(d.key);
@@ -532,7 +486,7 @@ stage.addEventListener('pointermove', (evt) => {
     const line = lineById(d.lineId);
     const proj = projectPointToPath(line.schematic.path, [wx, wy]);
     line.schematic.station_progress[d.idx] = proj.progress;
-    monotonize(line.schematic.station_progress);
+    line.schematic.station_progress = monotonizeProgress(line.schematic.station_progress);
     updateLineGeometry(line);
     renderInspector();
     updateDiag();
@@ -589,6 +543,7 @@ for (const [key, elId] of Object.entries(layerMap)) {
 
 function studioPayload() {
   const payload = {
+    baseRevision: state.revision,
     alpha: state.alpha,
     lines: {},
     anchors: {},
@@ -613,7 +568,13 @@ async function saveStudio({preview = false, previewWindow = null} = {}) {
       body: JSON.stringify(studioPayload()),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) throw new Error(data.detail || '保存失败');
+    if (!res.ok || !data.ok) {
+      const detail = data.detail;
+      if (res.status === 409 && detail?.currentRevision) {
+        throw new Error(`${detail.message || '布局版本冲突'}（服务器版本 ${detail.currentRevision}）`);
+      }
+      throw new Error(typeof detail === 'string' ? detail : detail?.message || '保存失败');
+    }
     state.revision = data.revision;
     layoutChannel?.postMessage({type: 'metro-layout-saved', revision: data.revision});
     showToast(`${data.message} · ${data.lines} 线 / ${data.anchors} 锚点`);

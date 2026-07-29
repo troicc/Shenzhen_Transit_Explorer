@@ -1,0 +1,12 @@
+{
+  "journey": {
+    "forward": {"arrivedIndex": 0, "targetIndex": 1, "segmentStart": 0, "segmentEnd": 0.5},
+    "reverse": {"arrivedIndex": 0, "targetIndex": 1, "arrivedOriginalIndex": 2, "targetOriginalIndex": 1, "segmentStart": 1, "segmentEnd": 0.5}
+  },
+  "navigation": {
+    "wheel": "pan",
+    "ctrlWheel": "zoom",
+    "shiftWheel": "horizontal-pan",
+    "safariGesture": "zoom"
+  }
+}

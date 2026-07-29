@@ -27,7 +27,8 @@ from .db import (
     store_query_result,
 )
 from .official import sync
-from .presentation import presentation_repository
+from .matcher import normalize_name
+from .presentation import PresentationRevisionConflict, presentation_repository
 from .service import service
 
 
@@ -191,6 +192,20 @@ def build_network() -> Dict[str, Any]:
 
 def _schematic_view(network: Dict[str, Any]) -> Dict[str, Any]:
     presentation = presentation_repository.get_network(network)
+    presentation_anchors = presentation.get("transfer_anchors") or {}
+
+    def studio_stop(stop: Dict[str, Any]) -> Dict[str, Any]:
+        station_key = normalize_name(str(stop.get("name", "")))
+        return {
+            "name": stop.get("name"),
+            "stationKey": station_key,
+            "anchorKey": station_key if station_key in presentation_anchors else None,
+            "progress": stop.get("progress"),
+            "x": stop.get("x"),
+            "y": stop.get("y"),
+            "estimated": stop.get("estimated", False),
+        }
+
     routes = []
     for route in presentation.get("routes", []):
         if route.get("direction") != "forward":
@@ -208,16 +223,7 @@ def _schematic_view(network: Dict[str, Any]) -> Dict[str, Any]:
                 "start_stop": route.get("start_stop"),
                 "end_stop": route.get("end_stop"),
                 "real_path": route.get("paths", {}).get("medium") or route.get("paths", {}).get("detail", []),
-                "stops": [
-                    {
-                        "name": stop.get("name"),
-                        "progress": stop.get("progress"),
-                        "x": stop.get("x"),
-                        "y": stop.get("y"),
-                        "estimated": stop.get("estimated", False),
-                    }
-                    for stop in route.get("stops", [])
-                ],
+                "stops": [studio_stop(stop) for stop in route.get("stops", [])],
                 "schematic": schematic,
             }
         )
@@ -260,13 +266,23 @@ def presentation_revision() -> Dict[str, Any]:
 def save_studio(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     network = service.require_network()
     try:
-        data = presentation_repository.normalize_layout(payload, network)
+        data, revision = presentation_repository.save_layout_if_revision(
+            payload,
+            network,
+            datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+    except PresentationRevisionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "revision_conflict",
+                "message": str(exc),
+                "currentRevision": exc.current_revision,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    data["saved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    presentation_repository.save_layout(data)
     service.invalidate_presentation()
-    revision = presentation_repository.revision(network)
     return {
         "ok": True,
         "revision": revision,
