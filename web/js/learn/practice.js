@@ -16,6 +16,9 @@ export class PracticeEngine {
     this.mode = 'overview';
     this.stops = [];
     this.journey.reset();
+    this.challengeIndex = null;
+    this.challengeKind = null;
+    this.challengePhase = 'idle';
     this.value = '';
     this.lastValid = '';
     this.acceptedCharacters = 0;
@@ -32,6 +35,9 @@ export class PracticeEngine {
     this.reset();
     this.stops = stops;
     this.journey.reset(stops.length);
+    this.challengeIndex = stops.length ? 0 : null;
+    this.challengeKind = stops.length ? 'origin' : null;
+    this.challengePhase = stops.length ? 'idle' : 'completed';
     this.mode = mode;
     this.running = true;
     this.timeLeft = 30;
@@ -47,7 +53,12 @@ export class PracticeEngine {
   }
 
   targetStation() {
-    return this.nextStation();
+    return this.stops[this.challengeIndex] || null;
+  }
+
+  isOriginChallenge() {
+    return this.challengeKind === 'origin'
+      && this.challengeIndex === this.journey.arrivedIndex;
   }
 
   targetDisplay() {
@@ -65,6 +76,7 @@ export class PracticeEngine {
       this.value = '';
       this.lastValid = '';
       this.journey.setTypingRatio(0);
+      this.challengePhase = 'idle';
     }
     this.emit();
     return true;
@@ -100,13 +112,23 @@ export class PracticeEngine {
     this.acceptedCharacters += added;
     this.value = normalized;
     this.lastValid = normalized;
-    this.journey.setTypingRatio(this.typingRatio());
+    const inputRatio = this.inputRatio();
+    const stationary = this.isOriginChallenge();
+    this.challengePhase = inputRatio > 0 ? 'typing' : 'idle';
+    this.journey.setTypingRatio(stationary ? 0 : inputRatio);
     if (normalized === target) {
       this.locked = true;
       this.completedStations += 1;
-      this.journey.beginArrival();
+      this.challengePhase = 'arriving';
+      if (!stationary) this.journey.beginArrival();
       this.emit();
-      return {type: 'complete', value: normalized};
+      return {
+        type: 'complete',
+        value: normalized,
+        challengeIndex: this.challengeIndex,
+        challengeKind: this.challengeKind,
+        stationary,
+      };
     }
     this.emit();
     return {type: 'valid', value: normalized};
@@ -114,14 +136,17 @@ export class PracticeEngine {
 
   advance() {
     if (!this.locked || this.finished) return {finished: false};
-    this.journey.completeArrival();
-    if (this.journey.targetIndex == null) {
+    if (!this.isOriginChallenge()) this.journey.completeArrival();
+    this.challengeIndex = this.journey.targetIndex;
+    this.challengeKind = this.challengeIndex == null ? null : 'travel';
+    if (this.challengeIndex == null) {
       this.finish('complete');
       return {finished: true};
     }
     this.value = '';
     this.lastValid = '';
     this.locked = false;
+    this.challengePhase = 'idle';
     this.emit();
     return {finished: false};
   }
@@ -132,6 +157,7 @@ export class PracticeEngine {
     this.running = false;
     this.locked = true;
     this.stopTimer();
+    this.challengePhase = reason === 'complete' ? 'completed' : 'idle';
     this.journey.finish({completed: reason === 'complete'});
     this.emit();
     this.onFinish({...this.snapshot(), reason});
@@ -157,9 +183,26 @@ export class PracticeEngine {
     return this.startedAt ? Math.round(this.acceptedCharacters / minutes) : 0;
   }
 
-  typingRatio() {
+  inputRatio() {
     const target = this.target();
     return target ? Math.min(1, this.value.length / target.length) : 0;
+  }
+
+  motionRatio() {
+    return this.isOriginChallenge() ? 0 : this.inputRatio();
+  }
+
+  typingRatio() {
+    return this.inputRatio();
+  }
+
+  progressRatio() {
+    const total = this.stops.length;
+    if (!total) return 0;
+    if (this.challengeIndex == null) {
+      return this.completedStations >= total ? 1 : Math.min(1, this.completedStations / total);
+    }
+    return Math.min(1, (this.challengeIndex + this.inputRatio()) / total);
   }
 
   snapshot() {
@@ -168,7 +211,11 @@ export class PracticeEngine {
       index: this.journey.arrivedIndex,
       arrivedIndex: this.journey.arrivedIndex,
       targetIndex: this.journey.targetIndex,
-      phase: this.journey.phase,
+      challengeIndex: this.challengeIndex,
+      challengeKind: this.challengeKind,
+      originChallenge: this.isOriginChallenge(),
+      phase: this.challengePhase,
+      journeyPhase: this.journey.phase,
       value: this.value,
       target: this.target(),
       targetDisplay: this.targetDisplay(),
@@ -182,7 +229,10 @@ export class PracticeEngine {
       elapsedSeconds: this.elapsedSeconds(),
       accuracy: this.accuracy(),
       cpm: this.cpm(),
-      typingRatio: this.journey.typingRatio,
+      inputRatio: this.inputRatio(),
+      motionRatio: this.motionRatio(),
+      progressRatio: this.progressRatio(),
+      typingRatio: this.inputRatio(),
       running: this.running,
       locked: this.locked,
       finished: this.finished,

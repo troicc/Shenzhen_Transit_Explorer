@@ -218,15 +218,17 @@ cp data/metro_schematic_layout.json var/metro/layout.json
 共享 Learn 运行时支持全网总览、单线示意、正反向、全线/30 秒练习、拼音与粤语信息、
 扁平动画和真实地图。
 
-- 当前站是车辆已到达的位置，输入目标始终是下一站。
-- 输入进度驱动车辆在当前站与下一站之间移动。
+- 当前站是车辆已到达的位置；练习先确认显示顺序中的起点，再逐站输入下一站。
+- 起点确认题只推进输入进度，车辆保持原位；后续输入进度驱动车辆驶向下一站。
 - 已行驶线路精确结束在车辆位置，未来段不会提前高亮。
 - 切换扁平、动画或真实地图只更换 renderer，不重置练习状态。
 
-内部状态使用明确的 `arrivedIndex`（车辆已到达）与 `targetIndex`（当前输入目标）。每次渲染
-生成不可变 `JourneyFrame`，其中同时记录 `segmentStart`、`segmentEnd`、`typingRatio` 和
+内部状态使用明确的 `arrivedIndex`（车辆已到达）、`targetIndex`（物理行程下一站）和
+`challengeIndex`（当前输入题）。`inputRatio` 与 `motionRatio` 分离，确保起点输入不产生位移。
+每次渲染生成不可变 `JourneyFrame`，其中同时记录 `segmentStart`、`segmentEnd`、运动比例和
 `phase`；路线、方向、浏览站、练习模式、地图模式、广播与 presentation revision 由 action
-驱动的 `LearnStore` 持有。Renderer 只消费快照，不自行推断下一站。
+驱动的 `LearnStore` 持有。Renderer 只消费快照，不自行推断下一站；到站光波只接受应用层
+显式提供的原始站点索引。
 
 这些行为同时由内部 Learn 测试和公开运行时测试覆盖。
 
@@ -303,9 +305,10 @@ Mac 导航由共享 `NavigationController` 统一处理：普通双指滚动平�
 geometry mode 与 spacing mode，布局更新不会复用旧缓存。
 
 练习可选择普通话全拼、粤拼、自然码/小鹤/微软/搜狗/智能 ABC/拼音加加/紫光双拼，并可打开
-输入框内提示；这些设置保存在浏览器本机。无论输入方案如何，目标始终是车辆当前位置的
-下一站。Bus 默认保持标准体验；启用 `busExperimental` 时复用同一个 Controller，但仍使用
-公交 geometry、公交车和公交主题。超长公交线路会降低镜头强度，练习正确性不受影响。
+输入框内提示；这些设置保存在浏览器本机。无论输入方案如何，起点确认都保持车辆原位，之后
+的目标始终是车辆当前位置的下一站。Bus 默认保持标准体验；启用 `busExperimental` 时复用
+同一个 Controller，但仍使用公交 geometry、公交车和公交主题。超长公交线路会降低镜头强度，
+练习正确性不受影响。
 
 切换体验不会重置当前线路、方向、当前/下一站、已输入内容、计时、准确率、车辆位置或
 地图模式；扁平动画、动画地图和真实地图仍共享同一份 JourneyFrame。

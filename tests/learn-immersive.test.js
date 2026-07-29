@@ -22,7 +22,7 @@ function fixture(profile = 'metroFinal', cameraMode = 'follow') {
     pointAtProgress: progress => [progress * 100, 40],
     pointAhead: progress => [progress * 100 + 5, 40],
     getView: () => ({x: 0, y: 0, w: 100, h: 80}),
-    setView: () => {},
+    setView: () => events.push(['camera-view']),
   };
   const experience = new LearnExperience({
     profile,
@@ -46,6 +46,7 @@ const frame = {
   journeyActive: true,
   arrivedOriginalIndex: 4,
   targetOriginalIndex: 5,
+  arrivalOriginalIndex: 5,
   phase: 'arriving',
 };
 
@@ -67,6 +68,19 @@ test('arrival is one-shot and return fits before flipping to overview', async ()
   await experience.returnOverview(frame);
   assert.deepEqual(events.map(event => event[0]), ['hide-real', 'full-fit']);
   assert.equal(flipScene.dataset.face, 'overview');
+  experience.destroy();
+});
+
+test('a stationary origin arrival pulses without forcing a camera update', async () => {
+  const {experience, events} = fixture();
+  await experience.enterRoute(frame);
+  events.length = 0;
+  await experience.arrive({
+    ...frame,
+    arrivalOriginalIndex: 4,
+    stationaryArrival: true,
+  });
+  assert.deepEqual(events, [['arrival', 4]]);
   experience.destroy();
 });
 

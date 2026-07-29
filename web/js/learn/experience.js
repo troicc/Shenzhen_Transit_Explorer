@@ -10,7 +10,7 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
 
 export function resolveArrivalPulseIndex(frame) {
   if (frame?.phase !== 'arriving') return null;
-  return Number.isInteger(frame?.targetOriginalIndex) ? frame.targetOriginalIndex : null;
+  return Number.isInteger(frame?.arrivalOriginalIndex) ? frame.arrivalOriginalIndex : null;
 }
 
 export class LearnExperience {
@@ -195,7 +195,7 @@ export class LearnExperience {
     const index = resolveArrivalPulseIndex(frame);
     if (index == null) return false;
     this.focusRenderer.showArrivalPulse(index);
-    if (this.usesFollowCamera(frame)) {
+    if (this.usesFollowCamera(frame) && !frame.stationaryArrival) {
       this.camera?.update({progress: frame.routeProgress, reverse: frame.direction === 'reverse', force: true});
     }
     await wait(this.reducedMotion ? 60 : 170);

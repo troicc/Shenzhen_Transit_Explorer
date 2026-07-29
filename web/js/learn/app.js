@@ -9,10 +9,10 @@ import {
   resolveExperienceProfile,
   userExperienceOverrideAllowed,
 } from './experience-profile.js';
-import {PracticeEngine} from './practice.js?v=3';
-import {learnProduct} from './product.js';
+import {PracticeEngine} from './practice.js?v=4';
+import {learnProduct} from './product.js?v=2';
 import {RealMapFocusRenderer} from './real-map.js?v=3';
-import {FocusRenderer, OverviewRenderer} from './renderers.js?v=4';
+import {FocusRenderer, OverviewRenderer} from './renderers.js?v=5';
 import {MetroSchematicOverviewRenderer} from './metro-overview.js';
 import {NavigationController} from './navigation-controller.js';
 import {RouteStretchController} from './route-stretch.js';
@@ -546,31 +546,36 @@ function stopJourneyMotion(ratio = 0, key = null) {
   settleJourneyMotionWaiters(false);
 }
 
-function journeyFrame(typingRatio, overrides = {}) {
-  const index = displayIndex();
-  const nextDisplay = index + 1 < state.route.stops.length ? index + 1 : null;
+function journeyFrame(motionRatio, overrides = {}) {
+  const snapshot = practice.snapshot();
+  const practiceSession = state.mode === 'timed' || state.mode === 'full';
+  const active = practiceSession && practice.running;
+  const browseIndex = displayIndex();
+  const arrivedIndex = practiceSession ? snapshot.arrivedIndex : browseIndex;
+  const targetIndex = practiceSession
+    ? snapshot.targetIndex
+    : (browseIndex + 1 < state.route.stops.length ? browseIndex + 1 : null);
   const geometry = currentGeometry();
-  const active = (state.mode === 'timed' || state.mode === 'full') && practice.running;
   return createJourneyFrame({
     network: state.networkType,
     route: state.route,
     direction: state.reverse ? 'reverse' : 'forward',
-    arrivedIndex: index,
-    targetIndex: nextDisplay,
-    typingRatio,
+    arrivedIndex,
+    targetIndex,
+    typingRatio: motionRatio,
     geometry,
     allLabels: state.allLabels,
     journeyActive: active,
     practiceMode: state.mode,
     mapMode: state.viewMode,
-    phase: active ? practice.snapshot().phase : 'idle',
+    phase: practiceSession ? snapshot.phase : 'idle',
     overrides,
   });
 }
 
-function renderJourneyFrame(typingRatio) {
+function renderJourneyFrame(motionRatio) {
   if (!state.route) return;
-  const frame = journeyFrame(typingRatio);
+  const frame = journeyFrame(motionRatio);
   focusRenderer.renderDynamic(frame);
   if (state.viewMode === 'animated' || state.viewMode === 'real') realMapRenderer.renderDynamic(frame);
   experience.updateJourney(frame);
@@ -619,9 +624,9 @@ function renderDynamic() {
   if (!state.route) return;
   const snapshot = practice.snapshot();
   const journeyActive = state.mode === 'timed' || state.mode === 'full';
-  const typingRatio = journeyActive ? syncJourneyMotion(snapshot.typingRatio) : 0;
+  const motionRatio = journeyActive ? syncJourneyMotion(snapshot.motionRatio) : 0;
   if (!journeyActive && state.journeyMotionKey != null) stopJourneyMotion();
-  renderJourneyFrame(typingRatio);
+  renderJourneyFrame(motionRatio);
   renderCards();
   if (elements.reviewDrawer.classList.contains('visible')) renderReviewPanel();
 }
@@ -639,6 +644,8 @@ async function setMode(mode) {
   learnStore.dispatch({type: 'PRACTICE_STARTED', mode});
   stopJourneyMotion();
   practice.start(displayStops(), mode);
+  $('#typingFeedback').className = 'typing-feedback';
+  $('#typingFeedback').textContent = product.feedback;
   elements.practicePanel.classList.add('visible');
   setActiveMode(mode);
   updateAppClasses();
@@ -732,15 +739,16 @@ function renderPractice(snapshot) {
   const scheme = spellingLabel(state.spellingScheme);
   $('#practiceKicker').textContent = state.mode === 'timed' ? `30 秒 · ${scheme}` : `全线 · ${scheme}`;
   $('#practiceStation').textContent = snapshot.targetStation?.name || snapshot.currentStation?.name || '—';
-  $('#practiceNext').textContent = snapshot.targetStation
-    ? `从 ${snapshot.currentStation?.name || '起点'} 出发`
-    : '已到达本线终点';
+  $('#practiceNext').textContent = !snapshot.targetStation
+    ? '已完成本线全部站点'
+    : snapshot.originChallenge
+      ? '起点确认 · 车辆保持原位'
+      : `从 ${snapshot.currentStation?.name || '起点'} 出发前往下一站`;
   $('#timeStat').textContent = state.mode === 'timed' ? snapshot.timeLeft : '∞';
   $('#stationStat').textContent = snapshot.completedStations;
   $('#speedStat').textContent = snapshot.cpm;
   $('#accuracyStat').textContent = `${Math.round(snapshot.accuracy * 100)}%`;
-  const progress = snapshot.totalStations <= 1 ? 1 : snapshot.index / (snapshot.totalStations - 1);
-  $('#practiceProgress').style.width = `${clamp((progress + snapshot.typingRatio / Math.max(1, snapshot.totalStations - 1)) * 100, 0, 100)}%`;
+  $('#practiceProgress').style.width = `${clamp(snapshot.progressRatio * 100, 0, 100)}%`;
   renderPinyinWords(snapshot);
   renderTypingCells(snapshot);
   renderTypingGhost(snapshot);
@@ -767,19 +775,34 @@ async function handleTypingInput() {
     return;
   }
   elements.typingInput.value = result.value;
+  const snapshot = practice.snapshot();
   feedback.className = 'typing-feedback';
-  feedback.textContent = `继续输入，${product.movingNoun}正平滑驶向目标站。`;
+  feedback.textContent = snapshot.originChallenge
+    ? `继续输入，${product.movingNoun}停靠在起点。`
+    : `继续输入，${product.movingNoun}正平滑驶向目标站。`;
   if (result.type === 'complete') {
     const completionToken = ++state.stationCompletionToken;
     feedback.className = 'typing-feedback ok';
-    feedback.textContent = '正确，正在平滑进站…';
+    feedback.textContent = result.stationary ? '正确，起点确认完成。' : '正确，正在平滑进站…';
     const station = practice.targetStation();
     audioPlayer.playStation(station).catch(() => {});
-    const arrivalFrame = journeyFrame(1, {forceCamera: true});
-    const arrived = await animateJourneyMotionTo(1);
-    if (completionToken !== state.stationCompletionToken || practice.finished) return;
-    if (!arrived) return;
-    renderJourneyFrame(1);
+    const arrivalOriginalIndex = Number.isInteger(snapshot.challengeIndex)
+      ? originalIndexFromDisplay(snapshot.challengeIndex)
+      : null;
+    const arrivalFrame = journeyFrame(result.stationary ? 0 : 1, {
+      forceCamera: !result.stationary,
+      arrivalOriginalIndex,
+      stationaryArrival: result.stationary,
+    });
+    if (result.stationary) {
+      stopJourneyMotion(0, state.journeyMotionKey);
+      renderJourneyFrame(0);
+    } else {
+      const arrived = await animateJourneyMotionTo(1);
+      if (completionToken !== state.stationCompletionToken || practice.finished) return;
+      if (!arrived) return;
+      renderJourneyFrame(1);
+    }
     await experience.arrive(arrivalFrame);
     if (completionToken !== state.stationCompletionToken || practice.finished) return;
     const advanced = practice.advance();
@@ -1005,7 +1028,9 @@ elements.spellingScheme.addEventListener('change', event => {
   practice.setTargetResolver(station => spellingTarget(station, state.spellingScheme));
   savePracticePreferences();
   $('#typingFeedback').className = 'typing-feedback';
-  $('#typingFeedback').textContent = `已切换为${spellingLabel(next)}，目标仍是车辆当前位置的下一站。`;
+  $('#typingFeedback').textContent = practice.snapshot().originChallenge
+    ? `已切换为${spellingLabel(next)}，请继续确认起点。`
+    : `已切换为${spellingLabel(next)}，目标仍是车辆当前位置的下一站。`;
   restorePracticeTypingFocus();
 });
 elements.inlineHintToggle.addEventListener('change', event => {

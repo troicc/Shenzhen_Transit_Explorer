@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#06101d">
   <title>深圳交通站名学习</title>
   <link rel="stylesheet" href="/static/css/navigation.css">
-  <link rel="stylesheet" href="/static/css/learn.css?v=5">
+  <link rel="stylesheet" href="/static/css/learn.css?v=6">
 </head>
 <body>
 <div class="app" id="app" data-experience="standard">
@@ -191,7 +191,7 @@
       <div class="practice-station">
         <span id="practiceKicker">输入普通话拼音</span>
         <strong id="practiceStation">—</strong>
-        <small id="practiceNext">从 — 出发</small>
+        <small id="practiceNext">先确认起点</small>
       </div>
       <div class="typing-area">
         <div class="pinyin-words" id="pinyinWords"></div>
@@ -214,11 +214,11 @@
           </select>
           <label><input id="inlineHintToggle" type="checkbox"> 输入框内提示</label>
         </div>
-        <div class="typing-feedback" id="typingFeedback">输入下一站拼音，车辆会平滑驶向它。</div>
+        <div class="typing-feedback" id="typingFeedback">先输入起点站名，车辆会保持原位。</div>
       </div>
       <div class="practice-stats">
         <div><strong id="timeStat">30</strong><span>秒</span></div>
-        <div><strong id="stationStat">0</strong><span>到站</span></div>
+        <div><strong id="stationStat">0</strong><span>完成</span></div>
         <div><strong id="speedStat">0</strong><span>CPM</span></div>
         <div><strong id="accuracyStat">100%</strong><span>准确率</span></div>
       </div>
@@ -256,7 +256,7 @@
       <h2 id="resultTitle">练习完成</h2>
       <p id="resultSubtitle">—</p>
       <div class="result-grid">
-        <div><strong id="resultStations">0</strong><span>到站</span></div>
+        <div><strong id="resultStations">0</strong><span>完成</span></div>
         <div><strong id="resultCpm">0</strong><span>CPM</span></div>
         <div><strong id="resultAccuracy">100%</strong><span>准确率</span></div>
       </div>
@@ -271,6 +271,6 @@
   <div class="toast" id="toast"></div>
 </div>
 <script type="module" src="/static/js/navigation.js"></script>
-<script type="module" src="/static/js/learn/app.js?v=5"></script>
+<script type="module" src="/static/js/learn/app.js?v=7"></script>
 </body>
 </html>

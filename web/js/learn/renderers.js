@@ -574,12 +574,13 @@ export class FocusRenderer {
     const unitPerPixel = this.visualUnit();
     const group = svgEl('g', {class: 'arrival-pulse-group', 'data-station-index': originalStationIndex});
     group.append(
-      svgEl('circle', {class: 'arrival-pulse outer', cx: point[0], cy: point[1], r: 7 * unitPerPixel}),
-      svgEl('circle', {class: 'arrival-pulse inner', cx: point[0], cy: point[1], r: 6 * unitPerPixel}),
-      svgEl('circle', {class: 'arrival-flash', cx: point[0], cy: point[1], r: 5 * unitPerPixel}),
+      svgEl('circle', {class: 'arrival-halo', cx: point[0], cy: point[1], r: 14 * unitPerPixel}),
+      svgEl('circle', {class: 'arrival-pulse outer', cx: point[0], cy: point[1], r: 11 * unitPerPixel}),
+      svgEl('circle', {class: 'arrival-pulse inner', cx: point[0], cy: point[1], r: 8.5 * unitPerPixel}),
+      svgEl('circle', {class: 'arrival-flash', cx: point[0], cy: point[1], r: 7 * unitPerPixel}),
     );
     this.transientEffectLayer.replaceChildren(group);
-    setTimeout(() => group.remove(), 1120);
+    setTimeout(() => group.remove(), 1450);
     return true;
   }
 
