@@ -6,14 +6,18 @@ import {NavigationController} from '../web/js/learn/navigation-controller.js';
 
 class FakeTarget {
   constructor() {
-    this.clientHeight = 500;
     this.listeners = new Map();
+    this.layoutReads = 0;
   }
 
+  get clientHeight() { throw new Error('wheel handling must not read clientHeight'); }
   addEventListener(type, handler) { this.listeners.set(type, handler); }
   removeEventListener(type) { this.listeners.delete(type); }
   setPointerCapture() {}
-  getBoundingClientRect() { return {left: 10, top: 20, width: 800, height: 500}; }
+  getBoundingClientRect() {
+    this.layoutReads += 1;
+    return {left: 10, top: 20, width: 800, height: 500};
+  }
 }
 
 function harness({flipped = false} = {}) {
@@ -26,6 +30,7 @@ function harness({flipped = false} = {}) {
   const renderer = {
     panByPixels: (...args) => calls.pan.push(args),
     zoomAt: (...args) => calls.zoom.push(args),
+    zoomAtNormalized: (...args) => calls.zoom.push(args),
     beginManualNavigation: () => { calls.begin += 1; },
     endManualNavigation: () => { calls.end += 1; },
   };
@@ -45,6 +50,7 @@ function harness({flipped = false} = {}) {
   return {
     calls,
     controller,
+    target,
     flushFrames() {
       const pending = [...frames.values()];
       frames.clear();
@@ -82,20 +88,21 @@ test('trackpad scrolling pans once per animation frame and respects cover flip',
   normal.controller.handleWheel(wheel({deltaX: 7, deltaY: 11}));
   assert.equal(normal.calls.pan.length, 0);
   normal.flushFrames();
-  assert.deepEqual(normal.calls.pan, [[-10, -16]]);
+  assert.deepEqual(normal.calls.pan.map(call => call.slice(0, 2)), [[-10, -16]]);
   assert.deepEqual(normal.calls.starts, ['wheel']);
+  assert.equal(normal.target.layoutReads, 1);
 
   const flipped = harness({flipped: true});
   flipped.controller.handleWheel(wheel({deltaX: 3, deltaY: 5}));
   flipped.flushFrames();
-  assert.deepEqual(flipped.calls.pan, [[-3, 5]]);
+  assert.deepEqual(flipped.calls.pan.map(call => call.slice(0, 2)), [[-3, 5]]);
 });
 
 test('shift-wheel pans horizontally while Chromium ctrl-wheel zooms at the pointer', () => {
   const shifted = harness();
   shifted.controller.handleWheel(wheel({deltaY: 12, shiftKey: true}));
   shifted.flushFrames();
-  assert.deepEqual(shifted.calls.pan, [[-12, 0]]);
+  assert.deepEqual(shifted.calls.pan.map(call => call.slice(0, 2)), [[-12, 0]]);
   assert.equal(shifted.calls.zoom.length, 0);
 
   const pinched = harness();
@@ -103,7 +110,7 @@ test('shift-wheel pans horizontally while Chromium ctrl-wheel zooms at the point
   pinched.flushFrames();
   assert.equal(pinched.calls.pan.length, 0);
   assert.equal(pinched.calls.zoom.length, 1);
-  assert.deepEqual(pinched.calls.zoom[0].slice(0, 2), [240, 190]);
+  assert.deepEqual(pinched.calls.zoom[0].slice(0, 2), [.2875, .34]);
   assert.ok(pinched.calls.zoom[0][2] < 1);
 });
 
@@ -116,7 +123,7 @@ test('Safari gesture scale is incremental and manual navigation ends after the g
   value.flushFrames();
   value.controller.handleGestureEnd({preventDefault() {}});
   assert.equal(value.calls.zoom.length, 2);
-  assert.deepEqual(value.calls.zoom[0].slice(0, 2), [410, 270]);
+  assert.deepEqual(value.calls.zoom[0].slice(0, 2), [.5, .5]);
   assert.ok(value.calls.zoom[0][2] < 1);
   assert.ok(value.calls.zoom[1][2] < 1);
   value.flushTimers();

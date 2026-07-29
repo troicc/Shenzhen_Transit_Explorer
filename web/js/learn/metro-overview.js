@@ -36,6 +36,10 @@ export class MetroSchematicOverviewRenderer {
     this.highlightId = null;
     this.flipped = false;
     this.drawFrame = 0;
+    this.mapFlipStage = this.svg.querySelector('#mapFlipStage');
+    this.committedView = {...this.view};
+    this.navigationActive = false;
+    this.navigationMetrics = null;
   }
 
   setData(presentation) {
@@ -226,7 +230,21 @@ export class MetroSchematicOverviewRenderer {
     const target = this.viewForBox(unionBox(this.routeCache), .055);
     this.homeView = {...target};
     this.view = {...target};
+    this.configureGridBounds();
     this.applyView();
+  }
+
+  configureGridBounds() {
+    const grid = this.svg.querySelector('#gridRect');
+    if (!grid) return;
+    const width = Math.max(1000, this.homeView.w);
+    const height = Math.max(600, this.homeView.h);
+    const centerX = this.homeView.x + this.homeView.w / 2;
+    const centerY = this.homeView.y + this.homeView.h / 2;
+    grid.setAttribute('x', centerX - width * 12);
+    grid.setAttribute('y', centerY - height * 12);
+    grid.setAttribute('width', width * 24);
+    grid.setAttribute('height', height * 24);
   }
 
   viewForBox(box, padding = .08) {
@@ -253,14 +271,38 @@ export class MetroSchematicOverviewRenderer {
   }
 
   applyView() {
-    this.svg.setAttribute('viewBox', `${this.view.x} ${this.view.y} ${this.view.w} ${this.view.h}`);
-    const grid = this.svg.querySelector('#gridRect');
-    if (grid) {
-      grid.setAttribute('x', this.view.x);
-      grid.setAttribute('y', this.view.y);
-      grid.setAttribute('width', this.view.w);
-      grid.setAttribute('height', this.view.h);
+    if (this.navigationActive) {
+      this.applyPreviewView();
+      return;
     }
+    this.commitView();
+  }
+
+  applyPreviewView() {
+    const base = this.committedView;
+    const view = this.view;
+    const scaleX = base.w / Math.max(.0001, view.w);
+    const scaleY = base.h / Math.max(.0001, view.h);
+    const translateX = base.x - view.x * scaleX;
+    const translateY = base.y - view.y * scaleY;
+    const unchanged = Math.abs(scaleX - 1) < 1e-6
+      && Math.abs(scaleY - 1) < 1e-6
+      && Math.abs(translateX) < 1e-5
+      && Math.abs(translateY) < 1e-5;
+    if (unchanged) this.mapFlipStage?.removeAttribute('transform');
+    else {
+      this.mapFlipStage?.setAttribute(
+        'transform',
+        `matrix(${scaleX} 0 0 ${scaleY} ${translateX} ${translateY})`,
+      );
+    }
+    this.notifyViewChange();
+  }
+
+  commitView() {
+    this.svg.setAttribute('viewBox', `${this.view.x} ${this.view.y} ${this.view.w} ${this.view.h}`);
+    this.committedView = {...this.view};
+    this.mapFlipStage?.removeAttribute('transform');
     this.notifyViewChange();
   }
 
@@ -294,8 +336,26 @@ export class MetroSchematicOverviewRenderer {
     this.updateVisualScale();
   }
 
-  panByPixels(dx, dy) {
-    const rectangle = this.stage.getBoundingClientRect();
+  beginManualNavigation(source, metrics) {
+    if (this.navigationActive) return;
+    this.navigationActive = true;
+    this.navigationMetrics = {
+      left: Number(metrics?.left) || 0,
+      top: Number(metrics?.top) || 0,
+      width: Math.max(1, Number(metrics?.width) || 0),
+      height: Math.max(1, Number(metrics?.height) || 0),
+    };
+  }
+
+  endManualNavigation() {
+    if (!this.navigationActive) return;
+    this.navigationActive = false;
+    this.commitView();
+    this.navigationMetrics = null;
+  }
+
+  panByPixels(dx, dy, metrics = null) {
+    const rectangle = this.navigationMetrics || metrics || this.stage.getBoundingClientRect();
     this.view.x -= dx / Math.max(1, rectangle.width) * this.view.w;
     this.view.y -= dy / Math.max(1, rectangle.height) * this.view.h;
     this.applyView();
@@ -304,14 +364,22 @@ export class MetroSchematicOverviewRenderer {
   zoomAt(clientX, clientY, factor) {
     if (!this.presentation) return;
     const rectangle = this.stage.getBoundingClientRect();
-    const point = this.worldFromClient(clientX, clientY);
+    const ratioX = clamp((clientX - rectangle.left) / Math.max(1, rectangle.width), 0, 1);
+    const rawY = clamp((clientY - rectangle.top) / Math.max(1, rectangle.height), 0, 1);
+    const ratioY = this.flipped ? 1 - rawY : rawY;
+    this.zoomAtNormalized(ratioX, ratioY, factor, rectangle);
+  }
+
+  zoomAtNormalized(ratioX, ratioY, factor, metrics = null) {
+    if (!this.presentation) return;
+    const rectangle = this.navigationMetrics || metrics || this.stage.getBoundingClientRect();
+    const ux = clamp(Number(ratioX) || 0, 0, 1);
+    const uy = clamp(Number(ratioY) || 0, 0, 1);
+    const point = [this.view.x + ux * this.view.w, this.view.y + uy * this.view.h];
     const fullWidth = this.homeView.w || this.presentation.world?.width || 10000;
     const width = clamp(this.view.w * factor, 100, fullWidth * 3);
     const height = width * rectangle.height / Math.max(1, rectangle.width);
-    const ratioX = (clientX - rectangle.left) / Math.max(1, rectangle.width);
-    const rawY = (clientY - rectangle.top) / Math.max(1, rectangle.height);
-    const ratioY = this.flipped ? 1 - rawY : rawY;
-    this.view = {x: point[0] - ratioX * width, y: point[1] - ratioY * height, w: width, h: height};
+    this.view = {x: point[0] - ux * width, y: point[1] - uy * height, w: width, h: height};
     this.applyView();
   }
 
@@ -343,6 +411,7 @@ export class MetroSchematicOverviewRenderer {
 
   destroy() {
     if (this.drawFrame) cancelAnimationFrame(this.drawFrame);
+    this.mapFlipStage?.removeAttribute('transform');
     this.routeLayer.replaceChildren();
     this.stationLayer.replaceChildren();
     this.transferLayer.replaceChildren();

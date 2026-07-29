@@ -17,6 +17,7 @@ export class NavigationController {
     cancelFrame = frame => cancelAnimationFrame(frame),
     setTimer = (callback, delay) => setTimeout(callback, delay),
     clearTimer = timer => clearTimeout(timer),
+    now = () => globalThis.performance?.now?.() ?? Date.now(),
   } = {}) {
     this.target = target;
     this.renderer = renderer;
@@ -31,15 +32,19 @@ export class NavigationController {
     this.cancelFrame = cancelFrame;
     this.setTimer = setTimer;
     this.clearTimer = clearTimer;
+    this.now = now;
     this.active = false;
     this.source = null;
     this.endTimer = 0;
+    this.interactionMetrics = null;
+    this.lastWheelAt = 0;
+    this.wheelEndDelay = 0;
     this.pointer = null;
     this.wheelFrame = 0;
     this.wheelPanX = 0;
     this.wheelPanY = 0;
     this.wheelZoomDelta = 0;
-    this.wheelAnchor = [0, 0];
+    this.wheelAnchor = [.5, .5];
     this.gesture = null;
     this.gestureFrame = 0;
     this.handlers = {
@@ -68,12 +73,25 @@ export class NavigationController {
   }
 
   begin(source) {
+    if (this.active) {
+      if (this.source === source) return;
+      if (this.endTimer) this.clearTimer(this.endTimer);
+      this.endTimer = 0;
+      this.source = source;
+      return;
+    }
+    const rectangle = this.target?.getBoundingClientRect?.() || {};
+    this.interactionMetrics = {
+      left: Number(rectangle.left) || 0,
+      top: Number(rectangle.top) || 0,
+      width: Math.max(1, Number(rectangle.width) || 0),
+      height: Math.max(1, Number(rectangle.height) || 0),
+    };
     if (this.endTimer) this.clearTimer(this.endTimer);
     this.endTimer = 0;
-    if (this.active) return;
     this.active = true;
     this.source = source;
-    this.adapter()?.beginManualNavigation?.();
+    this.adapter()?.beginManualNavigation?.(source, this.interactionMetrics);
     this.onInteractionStart(source);
   }
 
@@ -82,20 +100,45 @@ export class NavigationController {
     this.endTimer = this.setTimer(() => this.finish(), delay);
   }
 
+  markWheelActivity(delay = 150) {
+    this.lastWheelAt = this.now();
+    this.wheelEndDelay = delay;
+    if (this.endTimer) return;
+    const check = () => {
+      this.endTimer = 0;
+      if (!this.active || this.source !== 'wheel') return;
+      const remaining = this.wheelEndDelay - (this.now() - this.lastWheelAt);
+      if (remaining > 1) {
+        this.endTimer = this.setTimer(check, remaining);
+        return;
+      }
+      this.finish();
+    };
+    this.endTimer = this.setTimer(check, delay);
+  }
+
   finish() {
     if (this.endTimer) this.clearTimer(this.endTimer);
     this.endTimer = 0;
     if (!this.active) return;
     const source = this.source;
+    if (source === 'wheel' && this.wheelFrame) {
+      this.cancelFrame(this.wheelFrame);
+      this.wheelFrame = 0;
+      this.flushWheel();
+    }
     this.active = false;
     this.source = null;
     this.adapter()?.endManualNavigation?.();
+    this.interactionMetrics = null;
+    this.lastWheelAt = 0;
+    this.wheelEndDelay = 0;
     this.onInteractionEnd(source);
   }
 
   screenPan(dx, dy) {
     const adjustedY = this.isFlipped() ? -dy : dy;
-    this.adapter()?.panByPixels?.(dx || 0, adjustedY || 0);
+    this.adapter()?.panByPixels?.(dx || 0, adjustedY || 0, this.interactionMetrics);
   }
 
   handlePointerDown(event) {
@@ -159,41 +202,58 @@ export class NavigationController {
     this.wheelFrame = 0;
     const panX = this.wheelPanX;
     const panY = this.wheelPanY;
-    const zoomDelta = this.wheelZoomDelta;
+    const zoomDelta = clamp(this.wheelZoomDelta, -46, 46);
     const anchor = this.wheelAnchor;
     this.resetWheel();
     if (panX || panY) this.screenPan(-panX, -panY);
     if (zoomDelta) {
       const factor = clamp(Math.exp(zoomDelta * .0085), .74, 1.35);
-      this.adapter()?.zoomAt?.(anchor[0], anchor[1], factor);
+      this.zoomAtNormalized(anchor[0], anchor[1], factor);
     }
+  }
+
+  normalizedAnchor(event, {centerOnZero = false} = {}) {
+    const metrics = this.interactionMetrics || {left: 0, top: 0, width: 1, height: 1};
+    const hasCoordinates = Number.isFinite(event?.clientX)
+      && Number.isFinite(event?.clientY)
+      && (!centerOnZero || event.clientX !== 0 || event.clientY !== 0);
+    const clientX = hasCoordinates ? event.clientX : metrics.left + metrics.width / 2;
+    const clientY = hasCoordinates ? event.clientY : metrics.top + metrics.height / 2;
+    const ux = clamp((clientX - metrics.left) / metrics.width, 0, 1);
+    const rawUy = clamp((clientY - metrics.top) / metrics.height, 0, 1);
+    return [ux, this.isFlipped() ? 1 - rawUy : rawUy];
+  }
+
+  zoomAtNormalized(ux, uy, factor) {
+    const adapter = this.adapter();
+    if (adapter?.zoomAtNormalized) {
+      adapter.zoomAtNormalized(ux, uy, factor, this.interactionMetrics);
+      return;
+    }
+    const metrics = this.interactionMetrics || {left: 0, top: 0, width: 1, height: 1};
+    const rawUy = this.isFlipped() ? 1 - uy : uy;
+    adapter?.zoomAt?.(
+      metrics.left + ux * metrics.width,
+      metrics.top + rawUy * metrics.height,
+      factor,
+    );
   }
 
   handleWheel(event) {
     if (!this.enabled() || this.gesture || !this.adapter()) return;
     event.preventDefault?.();
     this.begin('wheel');
-    const input = normalizeWheelInput(event, {pageSize: this.target?.clientHeight || 600});
+    const pageSize = event.deltaMode === 2 ? this.interactionMetrics?.height || 600 : 600;
+    const input = normalizeWheelInput(event, {pageSize});
     if (input.kind === 'zoom') {
-      this.wheelAnchor = [event.clientX, event.clientY];
+      this.wheelAnchor = this.normalizedAnchor(event);
       this.wheelZoomDelta += input.zoomDelta;
     } else {
       this.wheelPanX += input.panX;
       this.wheelPanY += input.panY;
     }
     this.queueWheelFrame();
-    this.scheduleEnd(input.kind === 'zoom' ? 82 : 72);
-  }
-
-  gestureAnchor(event) {
-    const rectangle = this.target?.getBoundingClientRect?.() || {left: 0, top: 0, width: 0, height: 0};
-    const x = Number.isFinite(event?.clientX) && event.clientX
-      ? event.clientX
-      : rectangle.left + rectangle.width / 2;
-    const y = Number.isFinite(event?.clientY) && event.clientY
-      ? event.clientY
-      : rectangle.top + rectangle.height / 2;
-    return [x, y];
+    this.markWheelActivity(input.kind === 'zoom' ? 150 : 110);
   }
 
   handleGestureStart(event) {
@@ -202,8 +262,12 @@ export class NavigationController {
     if (this.wheelFrame) this.cancelFrame(this.wheelFrame);
     this.wheelFrame = 0;
     this.resetWheel();
-    this.gesture = {anchor: this.gestureAnchor(event), appliedScale: 1, pendingScale: 1};
     this.begin('gesture');
+    this.gesture = {
+      anchor: this.normalizedAnchor(event, {centerOnZero: true}),
+      appliedScale: 1,
+      pendingScale: 1,
+    };
   }
 
   handleGestureChange(event) {
@@ -219,7 +283,7 @@ export class NavigationController {
     if (Math.abs(this.gesture.appliedScale - this.gesture.pendingScale) < 1e-8) return;
     const factor = safariGestureZoomFactor(this.gesture.appliedScale, this.gesture.pendingScale);
     this.gesture.appliedScale = this.gesture.pendingScale;
-    this.adapter()?.zoomAt?.(this.gesture.anchor[0], this.gesture.anchor[1], factor);
+    this.zoomAtNormalized(this.gesture.anchor[0], this.gesture.anchor[1], factor);
   }
 
   handleGestureEnd(event) {
@@ -243,6 +307,9 @@ export class NavigationController {
     this.gesture = null;
     this.resetWheel();
     this.finish();
+    this.interactionMetrics = null;
+    this.lastWheelAt = 0;
+    this.wheelEndDelay = 0;
   }
 
   destroy() {

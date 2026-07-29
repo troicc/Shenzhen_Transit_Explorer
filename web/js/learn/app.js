@@ -13,8 +13,8 @@ import {PracticeEngine} from './practice.js?v=4';
 import {learnProduct} from './product.js?v=2';
 import {RealMapFocusRenderer} from './real-map.js?v=3';
 import {FocusRenderer, OverviewRenderer} from './renderers.js?v=5';
-import {MetroSchematicOverviewRenderer} from './metro-overview.js';
-import {NavigationController} from './navigation-controller.js';
+import {MetroSchematicOverviewRenderer} from './metro-overview.js?v=2';
+import {NavigationController} from './navigation-controller.js?v=2';
 import {RouteStretchController} from './route-stretch.js';
 import {spellingLabel, spellingTarget, VALID_SPELLING_SCHEMES} from './spelling.js';
 import {LearnStore} from './store.js';
@@ -88,6 +88,7 @@ const state = {
   journeyMotionLastAt: 0,
   journeyMotionWaiters: new Set(),
   overviewIntroProgress: 0,
+  overviewIntroObscured: null,
   spellingScheme: practicePreferences.spellingScheme,
   inlineHint: practicePreferences.inlineHint,
 };
@@ -147,18 +148,35 @@ const experience = new LearnExperience({
   cameraMode: state.cameraMode,
   reducedMotion,
 });
+let manualNavigationRenderer = null;
 const navigationAdapter = {
-  panByPixels(dx, dy) {
-    (state.route ? focusRenderer : overviewRenderer).panByPixels(dx, dy);
+  panByPixels(dx, dy, metrics) {
+    (manualNavigationRenderer || (state.route ? focusRenderer : overviewRenderer))
+      .panByPixels(dx, dy, metrics);
   },
   zoomAt(x, y, factor) {
-    (state.route ? focusRenderer : overviewRenderer).zoomAt(x, y, factor);
+    (manualNavigationRenderer || (state.route ? focusRenderer : overviewRenderer))
+      .zoomAt(x, y, factor);
   },
-  beginManualNavigation() {
-    if (state.route) focusRenderer.beginManualNavigation();
+  zoomAtNormalized(x, y, factor, metrics) {
+    const renderer = manualNavigationRenderer || (state.route ? focusRenderer : overviewRenderer);
+    if (renderer.zoomAtNormalized) {
+      renderer.zoomAtNormalized(x, y, factor, metrics);
+      return;
+    }
+    renderer.zoomAt(
+      (metrics?.left || 0) + x * Math.max(1, metrics?.width || 0),
+      (metrics?.top || 0) + y * Math.max(1, metrics?.height || 0),
+      factor,
+    );
+  },
+  beginManualNavigation(source, metrics) {
+    manualNavigationRenderer = state.route ? focusRenderer : overviewRenderer;
+    manualNavigationRenderer.beginManualNavigation?.(source, metrics);
   },
   endManualNavigation() {
-    if (state.route) focusRenderer.endManualNavigation();
+    manualNavigationRenderer?.endManualNavigation?.();
+    manualNavigationRenderer = null;
   },
 };
 const navigationController = new NavigationController({
@@ -270,21 +288,23 @@ function updateOverviewIntro({zoomRatio = 1, focused = false} = {}) {
     ? 1
     : overviewZoomProgress(1, 1 / ratio);
   state.overviewIntroProgress = progress;
-  elements.app.style.setProperty('--overview-zoom-progress', progress.toFixed(4));
-  elements.app.style.setProperty('--overview-intro-opacity', Math.max(.04, 1 - progress * .96).toFixed(4));
-  elements.app.style.setProperty('--overview-intro-scale', (1 + progress * .12).toFixed(4));
+  elements.intro.style.setProperty('--overview-intro-opacity', Math.max(.04, 1 - progress * .96).toFixed(4));
+  elements.intro.style.setProperty('--overview-intro-scale', (1 + progress * .12).toFixed(4));
   if (!elements.app.classList.contains('overview-navigation-active')) {
-    elements.app.style.setProperty('--overview-intro-blur', `${(progress * 10).toFixed(2)}px`);
+    elements.intro.style.setProperty('--overview-intro-blur', `${(progress * 10).toFixed(2)}px`);
   }
-  const hiddenByZoom = progress >= .72;
-  elements.app.classList.toggle('intro-zoom-obscured', hiddenByZoom);
-  elements.intro.toggleAttribute('inert', hiddenByZoom);
-  elements.intro.setAttribute('aria-hidden', String(hiddenByZoom));
+  const obscured = progress >= .72;
+  if (obscured !== state.overviewIntroObscured) {
+    state.overviewIntroObscured = obscured;
+    elements.intro.classList.toggle('zoom-obscured', obscured);
+    elements.intro.toggleAttribute('inert', obscured);
+    elements.intro.setAttribute('aria-hidden', String(obscured));
+  }
 }
 
 function commitOverviewIntroEffects() {
   const progress = clamp(state.overviewIntroProgress, 0, 1);
-  elements.app.style.setProperty('--overview-intro-blur', `${(progress * 10).toFixed(2)}px`);
+  elements.intro.style.setProperty('--overview-intro-blur', `${(progress * 10).toFixed(2)}px`);
 }
 
 function updateCameraModeControls() {

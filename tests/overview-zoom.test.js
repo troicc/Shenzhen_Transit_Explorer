@@ -24,15 +24,23 @@ test('resize preserves a zoomed viewport ratio without redefining it as home', (
   assert.deepEqual(preserveOverviewZoom(home, home, nextHome, 2), nextHome);
 });
 
-test('overview navigation defers blur and hides expensive metro detail layers', () => {
+test('overview navigation scopes title updates and disables expensive compositing layers', () => {
   const app = readFileSync(new URL('../web/js/learn/app.js', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../web/css/learn.css', import.meta.url), 'utf8');
   assert.match(app, /classList\.add\('overview-navigation-active'\)/);
   assert.match(app, /classList\.remove\('overview-navigation-active'\)/);
   assert.match(app, /commitOverviewIntroEffects\(\)/);
   assert.match(app, /!elements\.app\.classList\.contains\('overview-navigation-active'\)/);
+  assert.match(app, /elements\.intro\.style\.setProperty\('--overview-intro-opacity'/);
+  assert.doesNotMatch(app, /elements\.app\.style\.setProperty\('--overview-intro-/);
+  assert.match(app, /obscured !== state\.overviewIntroObscured/);
   assert.match(styles, /\.app\.overview-navigation-active \.intro\{filter:none!important;transition:none!important\}/);
   assert.match(styles, /\.app\.overview-navigation-active #metroDistrictLayer/);
   assert.match(styles, /\.app\.overview-navigation-active #metroOverviewStationLayer/);
   assert.match(styles, /\.app\.overview-navigation-active #metroOverviewTransferLayer\{visibility:hidden\}/);
+  assert.match(styles, /\.app\.overview-navigation-active \.metro-overview-hit\{visibility:hidden;pointer-events:none\}/);
+  assert.match(styles, /body\.is-map-navigating \.brand-mark,/);
+  assert.match(styles, /body\.is-map-navigating \.metro-line-strip\{-webkit-backdrop-filter:none!important;backdrop-filter:none!important\}/);
+  assert.match(styles, /\[data-line-state="entering"\] #focusSvg,/);
+  assert.match(styles, /\[data-line-state="returning"\] #focusSvg\{transform-style:preserve-3d;will-change:transform\}/);
 });
