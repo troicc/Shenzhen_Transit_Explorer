@@ -62,6 +62,7 @@ export function createJourneyFrame({
   direction = 'forward',
   arrivedIndex = 0,
   targetIndex = null,
+  challengeIndex = null,
   typingRatio = 0,
   geometry,
   allLabels = false,
@@ -78,9 +79,13 @@ export function createJourneyFrame({
   const safeTarget = Number.isInteger(targetIndex) && targetIndex >= 0 && targetIndex < count
     ? targetIndex
     : null;
+  const safeChallenge = Number.isInteger(challengeIndex) && challengeIndex >= 0 && challengeIndex < count
+    ? challengeIndex
+    : null;
   const toOriginal = index => reverse ? count - 1 - index : index;
   const arrivedOriginalIndex = toOriginal(safeArrived);
   const targetOriginalIndex = safeTarget == null ? null : toOriginal(safeTarget);
+  const challengeOriginalIndex = safeChallenge == null ? null : toOriginal(safeChallenge);
   const segmentStart = Number(geometry.stationProgresses?.[arrivedOriginalIndex]) || 0;
   const segmentEnd = targetOriginalIndex == null
     ? segmentStart
@@ -96,8 +101,10 @@ export function createJourneyFrame({
     reverse,
     arrivedIndex: safeArrived,
     targetIndex: safeTarget,
+    challengeIndex: safeChallenge,
     arrivedOriginalIndex,
     targetOriginalIndex,
+    challengeOriginalIndex,
     segmentStart,
     segmentEnd,
     typingRatio: ratio,

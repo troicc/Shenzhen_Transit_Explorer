@@ -46,4 +46,5 @@ test('Learn app keeps input progress out of vehicle motion and supplies the puls
   assert.doesNotMatch(source, /syncJourneyMotion\(snapshot\.typingRatio\)/);
   assert.match(source, /originalIndexFromDisplay\(snapshot\.challengeIndex\)/);
   assert.match(source, /stationaryArrival: result\.stationary/);
+  assert.match(source, /playStation\(station\)\.catch\(error => showToast\(error\.message\)\)/);
 });

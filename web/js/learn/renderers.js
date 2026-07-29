@@ -239,6 +239,7 @@ export function visualScaleBucket(unitPerPixel, step = 1.05) {
 export function focusStaticSceneKey({
   currentOriginalIndex,
   nextOriginalIndex,
+  challengeOriginalIndex,
   reverse,
   allLabels,
   journeyActive,
@@ -247,6 +248,7 @@ export function focusStaticSceneKey({
   return [
     currentOriginalIndex,
     nextOriginalIndex ?? 'end',
+    challengeOriginalIndex ?? 'no-challenge',
     reverse ? 'reverse' : 'forward',
     allLabels ? 'all-labels' : 'priority-labels',
     journeyActive ? 'journey' : 'browse',
@@ -584,9 +586,17 @@ export class FocusRenderer {
     return true;
   }
 
-  renderDynamic({currentOriginalIndex, nextOriginalIndex, reverse, typingRatio, allLabels, journeyActive = false}) {
+  renderDynamic({currentOriginalIndex, nextOriginalIndex, challengeOriginalIndex, reverse, typingRatio, allLabels, journeyActive = false}) {
     if (!this.route || !this.geometry) return;
-    this.lastDynamic = {currentOriginalIndex, nextOriginalIndex, reverse, typingRatio, allLabels, journeyActive};
+    this.lastDynamic = {
+      currentOriginalIndex,
+      nextOriginalIndex,
+      challengeOriginalIndex,
+      reverse,
+      typingRatio,
+      allLabels,
+      journeyActive,
+    };
     const unitPerPixel = this.visualUnit();
     this.refreshStaticScene(this.lastDynamic, unitPerPixel);
 
@@ -604,7 +614,15 @@ export class FocusRenderer {
     this.positionVehicle(actualProgress, unitPerPixel);
   }
 
-  renderStaticScene({currentOriginalIndex, nextOriginalIndex, reverse, allLabels, journeyActive, unitPerPixel}) {
+  renderStaticScene({
+    currentOriginalIndex,
+    nextOriginalIndex,
+    challengeOriginalIndex,
+    reverse,
+    allLabels,
+    journeyActive,
+    unitPerPixel,
+  }) {
     const stationRadius = 4.4 * unitPerPixel;
     const currentRadius = 7.8 * unitPerPixel;
     const terminalRadius = 6.4 * unitPerPixel;
@@ -650,18 +668,20 @@ export class FocusRenderer {
 
     if (this.staticEffectLayer) {
       this.staticEffectLayer.replaceChildren();
-      const targetIndex = journeyActive && Number.isInteger(nextOriginalIndex) ? nextOriginalIndex : null;
-      const target = targetIndex == null ? null : this.geometry.stationPoints[targetIndex];
-      if (target) {
+      const previewIndex = journeyActive && Number.isInteger(challengeOriginalIndex)
+        ? challengeOriginalIndex
+        : null;
+      const previewPoint = previewIndex == null ? null : this.geometry.stationPoints[previewIndex];
+      if (previewPoint) {
         const group = svgEl('g', {
           class: 'target-station-beacon',
-          'data-target-index': targetIndex,
-          'data-target-role': 'next-station',
+          'data-target-index': previewIndex,
+          'data-target-role': 'challenge-station',
         });
         group.append(
-          svgEl('circle', {class: 'target-ring secondary', cx: target[0], cy: target[1], r: 14 * unitPerPixel}),
-          svgEl('circle', {class: 'target-ring', cx: target[0], cy: target[1], r: 9 * unitPerPixel}),
-          svgEl('circle', {class: 'target-dot', cx: target[0], cy: target[1], r: 3.3 * unitPerPixel}),
+          svgEl('circle', {class: 'target-ring secondary', cx: previewPoint[0], cy: previewPoint[1], r: 14 * unitPerPixel}),
+          svgEl('circle', {class: 'target-ring', cx: previewPoint[0], cy: previewPoint[1], r: 9 * unitPerPixel}),
+          svgEl('circle', {class: 'target-dot', cx: previewPoint[0], cy: previewPoint[1], r: 3.3 * unitPerPixel}),
         );
         this.staticEffectLayer.append(group);
       }

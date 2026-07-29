@@ -52,6 +52,7 @@ test('JourneyFrame is immutable and uses the same explicit semantics in reverse'
     direction: 'reverse',
     arrivedIndex: 0,
     targetIndex: 1,
+    challengeIndex: 0,
     typingRatio: .4,
     geometry,
     journeyActive: true,
@@ -60,6 +61,8 @@ test('JourneyFrame is immutable and uses the same explicit semantics in reverse'
   const expected = behaviorMatrix.journey.reverse;
   assert.equal(frame.arrivedOriginalIndex, expected.arrivedOriginalIndex);
   assert.equal(frame.targetOriginalIndex, expected.targetOriginalIndex);
+  assert.equal(frame.challengeIndex, 0);
+  assert.equal(frame.challengeOriginalIndex, 2);
   assert.equal(frame.segmentStart, expected.segmentStart);
   assert.equal(frame.segmentEnd, expected.segmentEnd);
   assert.equal(frame.routeProgress, .8);
@@ -67,6 +70,39 @@ test('JourneyFrame is immutable and uses the same explicit semantics in reverse'
   assert.equal(frame.nextOriginalIndex, frame.targetOriginalIndex);
   assert.equal(Object.isFrozen(frame), true);
   assert.throws(() => { frame.arrivedIndex = 2; }, TypeError);
+});
+
+test('JourneyFrame keeps the typing challenge separate from the physical target', () => {
+  const route = {id: 'metro-1:forward', stops: [{name: '甲'}, {name: '乙'}, {name: '丙'}]};
+  const geometry = {stationProgresses: [0, .5, 1]};
+  const origin = createJourneyFrame({
+    network: 'metro', route, geometry,
+    arrivedIndex: 0, targetIndex: 1, challengeIndex: 0, journeyActive: true,
+  });
+  const nextChallenge = createJourneyFrame({
+    network: 'metro', route, geometry,
+    arrivedIndex: 0, targetIndex: 1, challengeIndex: 1, journeyActive: true,
+  });
+  assert.deepEqual(
+    [origin.arrivedIndex, origin.targetIndex, origin.challengeIndex, origin.challengeOriginalIndex],
+    [0, 1, 0, 0],
+  );
+  assert.deepEqual(
+    [nextChallenge.arrivedIndex, nextChallenge.targetIndex, nextChallenge.challengeIndex, nextChallenge.challengeOriginalIndex],
+    [0, 1, 1, 1],
+  );
+  assert.equal(origin.segmentEnd, nextChallenge.segmentEnd);
+});
+
+test('reverse JourneyFrame maps the display challenge to the source terminus', () => {
+  const route = {id: 'metro-1:reverse', stops: Array.from({length: 30}, (_, index) => ({name: `站${index}`}))};
+  const geometry = {stationProgresses: Array.from({length: 30}, (_, index) => index / 29)};
+  const frame = createJourneyFrame({
+    network: 'metro', route, geometry, direction: 'reverse',
+    arrivedIndex: 0, targetIndex: 1, challengeIndex: 0, journeyActive: true,
+  });
+  assert.equal(frame.challengeOriginalIndex, 29);
+  assert.equal(frame.targetOriginalIndex, 28);
 });
 
 test('renderer extras cannot override journey business semantics', () => {

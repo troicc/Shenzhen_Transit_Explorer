@@ -54,24 +54,98 @@ export async function deleteLocalAudio(stationName) {
   }
 }
 
-function waitForVoices(timeout = 600) {
+function availableVoices(synthesis) {
+  try {
+    return Array.from(synthesis?.getVoices?.() || []);
+  } catch (_) {
+    return [];
+  }
+}
+
+export function findCantoneseVoice(voices = []) {
+  const list = Array.from(voices || []);
+  const language = voice => String(voice?.lang || '').trim();
+  const description = voice => `${language(voice)} ${voice?.name || ''} ${voice?.voiceURI || ''}`;
+  return list.find(voice => /^zh(?:[-_]Hant)?[-_]HK$/i.test(language(voice)))
+    || list.find(voice => /^(?:yue|zh[-_]yue)(?:[-_].*)?$/i.test(language(voice)))
+    || list.find(voice => /(^|[-_\s])(sin[-_\s]?ji|sinji|kayan|hoyin|cantonese)([-_\s]|$)/i.test(description(voice)))
+    || list.find(voice => /hong\s*kong|香港|廣東話|广东话|粵語|粤语/i.test(description(voice)))
+    || null;
+}
+
+export function waitForCantoneseVoice(
+  synthesis = globalThis.speechSynthesis,
+  {timeout = 1800, pollInterval = 80} = {},
+) {
   return new Promise(resolve => {
-    if (!('speechSynthesis' in window)) return resolve([]);
-    const existing = speechSynthesis.getVoices();
-    if (existing.length) return resolve(existing);
-    const timer = setTimeout(() => resolve(speechSynthesis.getVoices()), timeout);
-    speechSynthesis.addEventListener('voiceschanged', () => {
-      clearTimeout(timer);
-      resolve(speechSynthesis.getVoices());
-    }, {once: true});
+    if (!synthesis?.getVoices) {
+      resolve(null);
+      return;
+    }
+
+    let settled = false;
+    let deadlineTimer = 0;
+    let pollTimer = 0;
+    const finish = voice => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadlineTimer);
+      clearTimeout(pollTimer);
+      synthesis.removeEventListener?.('voiceschanged', handleVoicesChanged);
+      resolve(voice || null);
+    };
+    const inspect = () => {
+      const voice = findCantoneseVoice(availableVoices(synthesis));
+      if (voice) finish(voice);
+      return voice;
+    };
+    const handleVoicesChanged = () => inspect();
+    const poll = () => {
+      if (settled || inspect()) return;
+      pollTimer = setTimeout(poll, Math.max(20, Number(pollInterval) || 80));
+    };
+
+    synthesis.addEventListener?.('voiceschanged', handleVoicesChanged);
+    if (inspect()) return;
+    pollTimer = setTimeout(poll, Math.max(20, Number(pollInterval) || 80));
+    deadlineTimer = setTimeout(
+      () => finish(findCantoneseVoice(availableVoices(synthesis))),
+      Math.max(0, Number(timeout) || 0),
+    );
   });
 }
 
 export class StationAudioPlayer {
-  constructor() {
+  constructor({
+    synthesis = globalThis.speechSynthesis,
+    utteranceFactory = text => new globalThis.SpeechSynthesisUtterance(text),
+    voiceWaitTimeout = 1800,
+    voicePollInterval = 80,
+  } = {}) {
     this.audio = null;
     this.objectUrl = null;
     this.token = 0;
+    this.synthesis = synthesis;
+    this.utteranceFactory = utteranceFactory;
+    this.voiceWaitTimeout = voiceWaitTimeout;
+    this.voicePollInterval = voicePollInterval;
+    this.cantoneseVoicePromise = null;
+    this.prepareCantoneseVoice();
+  }
+
+  prepareCantoneseVoice({refresh = false} = {}) {
+    const current = findCantoneseVoice(availableVoices(this.synthesis));
+    if (current) return Promise.resolve(current);
+    if (this.cantoneseVoicePromise && !refresh) return this.cantoneseVoicePromise;
+    const pending = waitForCantoneseVoice(this.synthesis, {
+      timeout: this.voiceWaitTimeout,
+      pollInterval: this.voicePollInterval,
+    });
+    this.cantoneseVoicePromise = pending;
+    pending.then(voice => {
+      if (!voice && this.cantoneseVoicePromise === pending) this.cantoneseVoicePromise = null;
+    });
+    return pending;
   }
 
   stop() {
@@ -86,7 +160,7 @@ export class StationAudioPlayer {
       URL.revokeObjectURL(this.objectUrl);
       this.objectUrl = null;
     }
-    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    this.synthesis?.cancel?.();
   }
 
   async playStation(station) {
@@ -130,21 +204,24 @@ export class StationAudioPlayer {
   }
 
   async speakCantonese(text) {
-    if (!('speechSynthesis' in window)) throw new Error('当前浏览器不支持系统语音');
-    const voices = await waitForVoices();
-    const voice = voices.find(item => /^zh-HK$/i.test(item.lang))
-      || voices.find(item => /yue|cantonese|zh[_-]HK/i.test(`${item.lang} ${item.name}`))
-      || voices.find(item => /^zh/i.test(item.lang));
+    if (!this.synthesis?.speak || typeof this.utteranceFactory !== 'function') {
+      throw new Error('当前浏览器不支持系统粤语语音');
+    }
+    const voice = findCantoneseVoice(availableVoices(this.synthesis))
+      || await this.prepareCantoneseVoice();
+    if (!voice) {
+      throw new Error('未检测到粤语（香港）系统声音，已阻止 Safari 改用普通话；请安装粤语声音后重试');
+    }
     const token = ++this.token;
     return new Promise((resolve, reject) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      if (voice) utterance.voice = voice;
-      utterance.lang = voice?.lang || 'zh-HK';
+      const utterance = this.utteranceFactory(text);
+      utterance.voice = voice;
+      utterance.lang = String(voice.lang || 'zh-HK');
       utterance.rate = .8;
       utterance.pitch = 1;
       utterance.onend = () => { if (token === this.token) resolve(); };
       utterance.onerror = () => reject(new Error('系统粤语播放失败'));
-      speechSynthesis.speak(utterance);
+      this.synthesis.speak(utterance);
     });
   }
 }

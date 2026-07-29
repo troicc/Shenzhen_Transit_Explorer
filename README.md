@@ -222,6 +222,8 @@ cp data/metro_schematic_layout.json var/metro/layout.json
 - 起点确认题只推进输入进度，车辆保持原位；后续输入进度驱动车辆驶向下一站。
 - 已行驶线路精确结束在车辆位置，未来段不会提前高亮。
 - 切换扁平、动画或真实地图只更换 renderer，不重置练习状态。
+- 粤语播报保持“本机音频 → 站点在线音频 → 系统粤语 voice”的顺序；系统回退会等待并明确绑定
+  `zh-HK`/Yue voice（Safari 上包括 `Sin-ji`），不会把任意普通话 `zh-*` voice 当成粤语。
 
 内部状态使用明确的 `arrivedIndex`（车辆已到达）、`targetIndex`（物理行程下一站）和
 `challengeIndex`（当前输入题）。`inputRatio` 与 `motionRatio` 分离，确保起点输入不产生位移。

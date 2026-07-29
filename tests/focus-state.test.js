@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 
 import {
   damp,
@@ -118,6 +119,7 @@ test('typing, camera pan and small zooms do not rebuild static stations and labe
   const base = {
     currentOriginalIndex: 2,
     nextOriginalIndex: 3,
+    challengeOriginalIndex: 3,
     reverse: false,
     allLabels: false,
     journeyActive: true,
@@ -127,11 +129,22 @@ test('typing, camera pan and small zooms do not rebuild static stations and labe
   const typed = focusStaticSceneKey({...base, typingRatio: .8});
   const sameBucket = focusStaticSceneKey({...base, unitPerPixel: 1.26});
   const arrived = focusStaticSceneKey({...base, currentOriginalIndex: 3, nextOriginalIndex: 4});
+  const nextChallenge = focusStaticSceneKey({...base, challengeOriginalIndex: 4});
   const zoomed = focusStaticSceneKey({...base, unitPerPixel: 1.4});
   assert.equal(first, typed);
   assert.equal(first, sameBucket);
   assert.notEqual(first, arrived);
+  assert.notEqual(first, nextChallenge);
   assert.notEqual(first, zoomed);
   assert.equal(visualScaleBucket(1.25), visualScaleBucket(1.26));
   assert.notEqual(visualScaleBucket(1.25), visualScaleBucket(1.4));
+});
+
+test('challenge beacon follows the typing challenge without changing its visual layers', () => {
+  const source = readFileSync(new URL('../web/js/learn/renderers.js', import.meta.url), 'utf8');
+  assert.match(source, /Number\.isInteger\(challengeOriginalIndex\)/);
+  assert.match(source, /'data-target-role': 'challenge-station'/);
+  assert.match(source, /class: 'target-ring secondary'/);
+  assert.match(source, /class: 'target-ring'/);
+  assert.match(source, /class: 'target-dot'/);
 });

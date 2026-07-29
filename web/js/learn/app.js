@@ -87,6 +87,7 @@ const state = {
   journeyMotionKey: null,
   journeyMotionLastAt: 0,
   journeyMotionWaiters: new Set(),
+  overviewIntroProgress: 0,
   spellingScheme: practicePreferences.spellingScheme,
   inlineHint: practicePreferences.inlineHint,
 };
@@ -189,10 +190,13 @@ const navigationController = new NavigationController({
   onInteractionStart: source => {
     document.body.classList.add('is-map-navigating');
     document.body.classList.toggle('is-panning', source === 'pointer');
+    if (!state.route) elements.app.classList.add('overview-navigation-active');
     if (state.route) experience.suspendForManualNavigation();
   },
   onInteractionEnd: () => {
     document.body.classList.remove('is-map-navigating', 'is-panning');
+    elements.app.classList.remove('overview-navigation-active');
+    commitOverviewIntroEffects();
   },
 });
 const practice = new PracticeEngine({
@@ -263,14 +267,22 @@ function updateOverviewIntro({zoomRatio = 1, focused = false} = {}) {
   const progress = state.route || focused
     ? 1
     : overviewZoomProgress(1, 1 / ratio);
+  state.overviewIntroProgress = progress;
   elements.app.style.setProperty('--overview-zoom-progress', progress.toFixed(4));
   elements.app.style.setProperty('--overview-intro-opacity', Math.max(.04, 1 - progress * .96).toFixed(4));
-  elements.app.style.setProperty('--overview-intro-blur', `${(progress * 10).toFixed(2)}px`);
   elements.app.style.setProperty('--overview-intro-scale', (1 + progress * .12).toFixed(4));
+  if (!elements.app.classList.contains('overview-navigation-active')) {
+    elements.app.style.setProperty('--overview-intro-blur', `${(progress * 10).toFixed(2)}px`);
+  }
   const hiddenByZoom = progress >= .72;
   elements.app.classList.toggle('intro-zoom-obscured', hiddenByZoom);
   elements.intro.toggleAttribute('inert', hiddenByZoom);
   elements.intro.setAttribute('aria-hidden', String(hiddenByZoom));
+}
+
+function commitOverviewIntroEffects() {
+  const progress = clamp(state.overviewIntroProgress, 0, 1);
+  elements.app.style.setProperty('--overview-intro-blur', `${(progress * 10).toFixed(2)}px`);
 }
 
 function updateCameraModeControls() {
@@ -555,6 +567,7 @@ function journeyFrame(motionRatio, overrides = {}) {
   const targetIndex = practiceSession
     ? snapshot.targetIndex
     : (browseIndex + 1 < state.route.stops.length ? browseIndex + 1 : null);
+  const challengeIndex = practiceSession ? snapshot.challengeIndex : null;
   const geometry = currentGeometry();
   return createJourneyFrame({
     network: state.networkType,
@@ -562,6 +575,7 @@ function journeyFrame(motionRatio, overrides = {}) {
     direction: state.reverse ? 'reverse' : 'forward',
     arrivedIndex,
     targetIndex,
+    challengeIndex,
     typingRatio: motionRatio,
     geometry,
     allLabels: state.allLabels,
@@ -785,7 +799,7 @@ async function handleTypingInput() {
     feedback.className = 'typing-feedback ok';
     feedback.textContent = result.stationary ? '正确，起点确认完成。' : '正确，正在平滑进站…';
     const station = practice.targetStation();
-    audioPlayer.playStation(station).catch(() => {});
+    audioPlayer.playStation(station).catch(error => showToast(error.message));
     const arrivalOriginalIndex = Number.isInteger(snapshot.challengeIndex)
       ? originalIndexFromDisplay(snapshot.challengeIndex)
       : null;
@@ -849,7 +863,16 @@ async function startBroadcast() {
   for (let index = 0; index < stops.length && state.broadcasting && token === state.broadcastToken; index += 1) {
     learnStore.dispatch({type: 'BROWSE_CHANGED', index});
     renderDynamic();
-    try { await audioPlayer.playStation(stops[index]); } catch (_) {}
+    try {
+      await audioPlayer.playStation(stops[index]);
+    } catch (error) {
+      if (token === state.broadcastToken) {
+        learnStore.dispatch({type: 'BROADCAST_CHANGED', broadcasting: false});
+        renderCards();
+        showToast(error.message);
+      }
+      return;
+    }
     await new Promise(resolve => setTimeout(resolve, 240));
   }
   if (token === state.broadcastToken) {
