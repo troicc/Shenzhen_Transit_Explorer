@@ -7,8 +7,25 @@ import {
 import {completionSpring} from './route-stretch.js';
 
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));
+const frameNow = () => globalThis.performance?.now?.() ?? Date.now();
+const requestFrame = callback => globalThis.requestAnimationFrame?.(callback)
+  ?? setTimeout(() => callback(frameNow()), 16);
+const cancelFrame = frame => {
+  if (globalThis.cancelAnimationFrame) globalThis.cancelAnimationFrame(frame);
+  else clearTimeout(frame);
+};
+const lerp = (start, end, ratio) => start + (end - start) * ratio;
 const COVER_FLIP_SETTLE_MS = 780;
-const METRO_RETURN_MOTION_MS = 420;
+const METRO_RETURN_MERGE_MS = 1040;
+const METRO_RETURN_DISSOLVE_MS = 300;
+const METRO_RETURN_FLIP_PREPARE_MS = 80;
+
+// Acknowledge the double click immediately, then decelerate gently into the network.
+export function returnMergeEase(value) {
+  const ratio = clamp01(value);
+  return 1 - Math.pow(1 - ratio, 4);
+}
 
 export function resolveArrivalPulseIndex(frame) {
   if (frame?.phase !== 'arriving') return null;
@@ -28,6 +45,9 @@ export class LearnExperience {
     cameraMode = 'follow',
     reducedMotion = false,
     waitForAnimation = wait,
+    requestAnimation = requestFrame,
+    cancelAnimation = cancelFrame,
+    now = frameNow,
   } = {}) {
     this.network = network;
     this.appElement = appElement;
@@ -38,10 +58,15 @@ export class LearnExperience {
     this.stretchController = stretchController;
     this.reducedMotion = Boolean(reducedMotion);
     this.waitForAnimation = typeof waitForAnimation === 'function' ? waitForAnimation : wait;
+    this.requestAnimation = typeof requestAnimation === 'function' ? requestAnimation : requestFrame;
+    this.cancelAnimation = typeof cancelAnimation === 'function' ? cancelAnimation : cancelFrame;
+    this.now = typeof now === 'function' ? now : frameNow;
     this.profile = null;
     this.camera = null;
     this.lastJourneyProgress = null;
     this.returnToken = 0;
+    this.returnFrame = 0;
+    this.returnPreviewNodes = null;
     this.coverFlipped = false;
     this.lineState = 'overview';
     this.cameraMode = cameraMode === 'full' ? 'full' : 'follow';
@@ -107,8 +132,96 @@ export class LearnExperience {
     await this.waitForAnimation(COVER_FLIP_SETTLE_MS);
   }
 
+  cancelReturnMergePreview() {
+    if (this.returnFrame) this.cancelAnimation(this.returnFrame);
+    this.returnFrame = 0;
+    const nodes = this.returnPreviewNodes;
+    nodes?.mapStage?.removeAttribute?.('transform');
+    nodes?.focusScene?.removeAttribute?.('transform');
+    this.returnPreviewNodes = null;
+  }
+
+  metroReturnPreview(homeView) {
+    if (this.network !== 'metro' || !this.capabilities?.coverFlip || !homeView) return null;
+    const mapStage = this.overviewRenderer?.mapFlipStage;
+    const focusScene = this.focusRenderer?.svg?.querySelector?.('#focusSceneLayer');
+    const currentView = this.focusRenderer?.getView?.();
+    const geometry = this.stretchController?.geometry || this.focusRenderer?.geometry;
+    const center = geometry?.displayCenter;
+    const displayScale = Number(geometry?.displayScale) || 1;
+    if (!mapStage || !focusScene || !currentView || !center || displayScale <= 0) return null;
+
+    const mapScaleX = Number(currentView.w) / Math.max(.0001, Number(homeView.w));
+    const mapScaleY = Number(currentView.h) / Math.max(.0001, Number(homeView.h));
+    const mapTranslateX = Number(currentView.x) - Number(homeView.x) * mapScaleX;
+    const mapTranslateY = Number(currentView.y) - Number(homeView.y) * mapScaleY;
+    const focusScale = 1 / displayScale;
+    const focusTranslateX = Number(center[0]) * (1 - focusScale);
+    const focusTranslateY = Number(center[1]) * (1 - focusScale);
+
+    return {
+      mapStage,
+      focusScene,
+      mapScaleX,
+      mapScaleY,
+      mapTranslateX,
+      mapTranslateY,
+      focusScale,
+      focusTranslateX,
+      focusTranslateY,
+    };
+  }
+
+  animateMetroReturnMerge(token, preview, duration = METRO_RETURN_MERGE_MS) {
+    if (!preview || this.reducedMotion || duration <= 0) return Promise.resolve(Boolean(preview));
+    this.cancelReturnMergePreview();
+    this.returnPreviewNodes = preview;
+    const startedAt = this.now();
+    return new Promise(resolve => {
+      const step = timestamp => {
+        if (token !== this.returnToken) {
+          this.cancelReturnMergePreview();
+          resolve(false);
+          return;
+        }
+        const raw = clamp01((timestamp - startedAt) / duration);
+        const eased = returnMergeEase(raw);
+        const mapScaleX = lerp(1, preview.mapScaleX, eased);
+        const mapScaleY = lerp(1, preview.mapScaleY, eased);
+        const mapTranslateX = preview.mapTranslateX * eased;
+        const mapTranslateY = preview.mapTranslateY * eased;
+        const focusScale = lerp(1, preview.focusScale, eased);
+        const focusTranslateX = preview.focusTranslateX * eased;
+        const focusTranslateY = preview.focusTranslateY * eased;
+        preview.mapStage.setAttribute(
+          'transform',
+          `matrix(${mapScaleX} 0 0 ${mapScaleY} ${mapTranslateX} ${mapTranslateY})`,
+        );
+        preview.focusScene.setAttribute(
+          'transform',
+          `matrix(${focusScale} 0 0 ${focusScale} ${focusTranslateX} ${focusTranslateY})`,
+        );
+        if (raw < 1) this.returnFrame = this.requestAnimation(step);
+        else {
+          this.returnFrame = 0;
+          resolve(true);
+        }
+      };
+      this.returnFrame = this.requestAnimation(step);
+    });
+  }
+
+  commitMetroReturnMerge(homeView) {
+    this.stretchController?.apply?.(0);
+    this.focusRenderer?.setView?.(homeView, {animate: false});
+    this.overviewRenderer?.setView?.(homeView);
+    this.returnPreviewNodes?.focusScene?.removeAttribute?.('transform');
+    this.returnPreviewNodes = null;
+  }
+
   async enterRoute(frame) {
     const token = ++this.returnToken;
+    this.cancelReturnMergePreview();
     const wasFlipped = this.coverFlipped;
     this.appElement?.classList.remove('route-returning');
     this.setLineState('entering');
@@ -250,42 +363,72 @@ export class LearnExperience {
 
   async returnOverview() {
     const token = ++this.returnToken;
+    this.cancelReturnMergePreview();
     this.camera?.stop();
     this.lastJourneyProgress = null;
     this.realMapRenderer?.hide?.();
-    this.setLineState('returning');
-    this.appElement?.classList.add('route-returning');
-    const source = this.stretchController?.source || this.focusRenderer.sourceGeometry || this.focusRenderer.geometry;
-    const hasCoverFlip = Boolean(this.capabilities.coverFlip);
-    const returnDuration = this.capabilities.routeStretch
-      ? (hasCoverFlip ? METRO_RETURN_MOTION_MS : 860)
-      : 360;
-    const stretchDuration = this.capabilities.routeStretch ? returnDuration : 0;
+    this.setLineState('merging');
+    this.appElement?.classList.add('route-returning', 'route-stretching');
 
-    // Cancel any entry/follow animation before the cover starts rotating. A
-    // double-click can arrive while an earlier route transition is still settling.
+    // Freeze any entry/follow animation at its current visual state. The merge
+    // below is transactional: two group matrices move to the exact overview
+    // landing pose without rewriting paths, station coordinates or viewBox.
     this.stretchController?.cancel?.();
     this.focusRenderer?.cancelViewAnimation?.();
-    if (hasCoverFlip) {
+    const source = this.stretchController?.source || this.focusRenderer.sourceGeometry || this.focusRenderer.geometry;
+    const homeView = this.overviewRenderer?.homeView ? {...this.overviewRenderer.homeView} : null;
+    const preview = this.metroReturnPreview(homeView);
+
+    try {
+      if (preview) {
+        const merged = await this.animateMetroReturnMerge(token, preview);
+        if (!merged || token !== this.returnToken) return false;
+        this.commitMetroReturnMerge(homeView);
+      } else {
+        const returnDuration = this.capabilities.routeStretch ? 980 : 420;
+        await Promise.all([
+          this.stretchController?.animateTo?.(0, {
+            duration: this.capabilities.routeStretch ? returnDuration : 0,
+            easing: returnMergeEase,
+          }) || Promise.resolve(),
+          homeView
+            ? this.focusRenderer.setView(homeView, {
+              animate: true,
+              duration: returnDuration,
+              easing: returnMergeEase,
+            })
+            : this.focusRenderer.fitFullRoute({
+              practiceVisible: false,
+              geometry: source,
+              animate: true,
+              duration: returnDuration,
+              easing: returnMergeEase,
+            }),
+        ]);
+      }
+    } finally {
+      this.appElement?.classList.remove('route-stretching');
+    }
+
+    if (token !== this.returnToken) return false;
+
+    // The focus route now lands on the same pixels as its original overview
+    // route. Reveal the complete network and dissolve the duplicate focus layer.
+    this.overviewRenderer?.setFocused?.(false, null);
+    this.focusRenderer?.resetDisplayGeometry?.();
+    if (homeView) this.overviewRenderer?.setView?.(homeView);
+    this.appElement?.classList.remove('focused');
+    this.setFace('overview');
+
+    if (this.capabilities.coverFlip) {
+      if (!this.reducedMotion) await this.waitForAnimation(METRO_RETURN_DISSOLVE_MS);
+      if (token !== this.returnToken) return false;
+      this.setLineState('returning');
+      if (!this.reducedMotion) await this.waitForAnimation(METRO_RETURN_FLIP_PREPARE_MS);
       this.setCoverFlipped(true);
       await this.waitForCoverFlip();
     }
-    if (token !== this.returnToken) return false;
 
-    await Promise.all([
-      this.stretchController?.animateTo?.(0, {duration: stretchDuration}) || Promise.resolve(),
-      this.focusRenderer.fitFullRoute({
-        practiceVisible: false,
-        geometry: source,
-        animate: true,
-        duration: returnDuration,
-      }),
-    ]);
-    if (token !== this.returnToken) return false;
-    this.overviewRenderer?.setFocused?.(false, null);
-    this.focusRenderer?.resetDisplayGeometry?.();
-    if (this.overviewRenderer?.homeView) this.overviewRenderer.setView?.(this.overviewRenderer.homeView);
-    this.setFace('overview');
     this.appElement?.classList.remove('route-returning');
     this.setLineState('overview');
     return token === this.returnToken;
@@ -297,6 +440,7 @@ export class LearnExperience {
 
   destroy() {
     ++this.returnToken;
+    this.cancelReturnMergePreview();
     this.camera?.destroy();
     this.camera = null;
     this.stretchController?.destroy?.();
