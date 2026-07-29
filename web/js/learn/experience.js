@@ -17,9 +17,11 @@ const cancelFrame = frame => {
 };
 const lerp = (start, end, ratio) => start + (end - start) * ratio;
 const COVER_FLIP_SETTLE_MS = 780;
+const METRO_RETURN_CARDS_MS = 300;
 const METRO_RETURN_MERGE_MS = 1040;
 const METRO_RETURN_DISSOLVE_MS = 300;
 const METRO_RETURN_FLIP_PREPARE_MS = 80;
+const METRO_RETURN_CARD_EASING = 'cubic-bezier(.2,.78,.2,1)';
 
 // Acknowledge the double click immediately, then decelerate gently into the network.
 export function returnMergeEase(value) {
@@ -67,6 +69,8 @@ export class LearnExperience {
     this.returnToken = 0;
     this.returnFrame = 0;
     this.returnPreviewNodes = null;
+    this.returnCardAnimation = null;
+    this.returnCardDock = null;
     this.coverFlipped = false;
     this.lineState = 'overview';
     this.cameraMode = cameraMode === 'full' ? 'full' : 'follow';
@@ -130,6 +134,66 @@ export class LearnExperience {
   async waitForCoverFlip() {
     if (this.reducedMotion) return;
     await this.waitForAnimation(COVER_FLIP_SETTLE_MS);
+  }
+
+  returnCardDockElement() {
+    return this.appElement?.querySelector?.('.line-info-dock') || null;
+  }
+
+  cancelReturnCardClose({reset = true} = {}) {
+    this.returnCardAnimation?.cancel?.();
+    this.returnCardAnimation = null;
+    const dock = this.returnCardDock || this.returnCardDockElement();
+    if (dock && reset) {
+      dock.style?.removeProperty?.('opacity');
+      dock.style?.removeProperty?.('transform');
+      dock.style?.removeProperty?.('pointer-events');
+      dock.style?.removeProperty?.('transition');
+    }
+    this.returnCardDock = null;
+  }
+
+  async closeReturnCards(token) {
+    const dock = this.returnCardDockElement();
+    if (!dock) return token === this.returnToken;
+
+    this.cancelReturnCardClose();
+    this.returnCardDock = dock;
+    dock.style?.setProperty?.('pointer-events', 'none');
+
+    const targetTransform = 'translateX(-50%) translateY(18px) scale(.965)';
+    if (this.reducedMotion) {
+      dock.style?.setProperty?.('opacity', '0');
+      dock.style?.setProperty?.('transform', targetTransform);
+      return token === this.returnToken;
+    }
+
+    if (typeof dock.animate === 'function') {
+      const animation = dock.animate([
+        {opacity: 1, transform: 'translateX(-50%) translateY(0) scale(1)'},
+        {opacity: 0, transform: targetTransform},
+      ], {
+        duration: METRO_RETURN_CARDS_MS,
+        easing: METRO_RETURN_CARD_EASING,
+        fill: 'forwards',
+      });
+      this.returnCardAnimation = animation;
+      try {
+        await animation.finished;
+      } catch (_) {
+        return false;
+      }
+      return token === this.returnToken;
+    }
+
+    dock.style?.setProperty?.(
+      'transition',
+      `opacity ${METRO_RETURN_CARDS_MS}ms ${METRO_RETURN_CARD_EASING}, transform ${METRO_RETURN_CARDS_MS}ms ${METRO_RETURN_CARD_EASING}`,
+    );
+    dock.style?.setProperty?.('opacity', '0');
+    dock.style?.setProperty?.('transform', targetTransform);
+    await this.waitForAnimation(METRO_RETURN_CARDS_MS);
+    return token === this.returnToken;
   }
 
   cancelReturnMergePreview() {
@@ -221,6 +285,7 @@ export class LearnExperience {
 
   async enterRoute(frame) {
     const token = ++this.returnToken;
+    this.cancelReturnCardClose();
     this.cancelReturnMergePreview();
     const wasFlipped = this.coverFlipped;
     this.appElement?.classList.remove('route-returning');
@@ -363,18 +428,27 @@ export class LearnExperience {
 
   async returnOverview() {
     const token = ++this.returnToken;
+    this.cancelReturnCardClose();
     this.cancelReturnMergePreview();
     this.camera?.stop();
     this.lastJourneyProgress = null;
     this.realMapRenderer?.hide?.();
-    this.setLineState('merging');
-    this.appElement?.classList.add('route-returning', 'route-stretching');
 
-    // Freeze any entry/follow animation at its current visual state. The merge
-    // below is transactional: two group matrices move to the exact overview
-    // landing pose without rewriting paths, station coordinates or viewBox.
+    // Phase 1: close the information dock completely before any map movement.
+    // The WAAPI animation deliberately overrides the stronger focused CSS rule.
+    this.setLineState('closing');
+    this.appElement?.classList.add('route-returning');
+
+    // Freeze any entry/follow animation at its current visual state while the
+    // cards leave. No route, camera or flip movement starts in this phase.
     this.stretchController?.cancel?.();
     this.focusRenderer?.cancelViewAnimation?.();
+    const cardsClosed = await this.closeReturnCards(token);
+    if (!cardsClosed || token !== this.returnToken) return false;
+
+    // Phase 2: transactionally merge the enlarged route into the overview.
+    this.setLineState('merging');
+    this.appElement?.classList.add('route-stretching');
     const source = this.stretchController?.source || this.focusRenderer.sourceGeometry || this.focusRenderer.geometry;
     const homeView = this.overviewRenderer?.homeView ? {...this.overviewRenderer.homeView} : null;
     const preview = this.metroReturnPreview(homeView);
@@ -420,6 +494,7 @@ export class LearnExperience {
     this.appElement?.classList.remove('focused');
     this.setFace('overview');
 
+    // Phase 3: only the settled complete network is allowed to flip.
     if (this.capabilities.coverFlip) {
       if (!this.reducedMotion) await this.waitForAnimation(METRO_RETURN_DISSOLVE_MS);
       if (token !== this.returnToken) return false;
@@ -430,6 +505,7 @@ export class LearnExperience {
     }
 
     this.appElement?.classList.remove('route-returning');
+    this.cancelReturnCardClose();
     this.setLineState('overview');
     return token === this.returnToken;
   }
@@ -440,6 +516,7 @@ export class LearnExperience {
 
   destroy() {
     ++this.returnToken;
+    this.cancelReturnCardClose();
     this.cancelReturnMergePreview();
     this.camera?.destroy();
     this.camera = null;
