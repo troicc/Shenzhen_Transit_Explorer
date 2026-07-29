@@ -139,7 +139,7 @@ test('metro transactional return matrices align stretched focus geometry with th
   const experience = Object.assign(Object.create(LearnExperience.prototype), {
     network: 'metro',
     capabilities: {coverFlip: true},
-    overviewRenderer: {mapFlipStage},
+    overviewRenderer: {mapFlipStage: mapStage},
     focusRenderer: {
       svg: {querySelector: selector => selector === '#focusSceneLayer' ? focusScene : null},
       getView: () => ({x: 100, y: 50, w: 400, h: 200}),
