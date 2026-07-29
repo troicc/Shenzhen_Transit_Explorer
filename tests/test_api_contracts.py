@@ -10,6 +10,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from transit_explorer.editions.internal import app
+from transit_explorer.common.speech import CantoneseAudio, CantoneseSpeechUnavailable
 from transit_explorer.networks.bus.service import service as bus_service
 from transit_explorer.networks.metro.service import service as metro_service
 
@@ -122,6 +123,29 @@ class InternalApiContractTests(unittest.TestCase):
             self.assertTrue(search.json()["results"])
             if network_id == "metro":
                 self.assertIn("focus", learning.json()["geometry"])
+
+    def test_bus_and_metro_share_native_cantonese_speech(self) -> None:
+        audio = CantoneseAudio(content=b"\x00\x00\x00\x18ftypM4A test-audio", voice="Sin-ji")
+        with mock.patch("transit_explorer.common.network.synthesize_cantonese", return_value=audio) as synthesize:
+            for network_id in ("bus", "metro"):
+                response = self.client.get(
+                    "/api/{}/learn/speech".format(network_id),
+                    params={"text": "会展中心"},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["content-type"], "audio/mp4")
+                self.assertEqual(response.headers["x-transit-voice"], "Sin-ji")
+                self.assertEqual(response.content, audio.content)
+        self.assertEqual(synthesize.call_count, 2)
+
+    def test_native_cantonese_speech_reports_service_failure(self) -> None:
+        with mock.patch(
+            "transit_explorer.common.network.synthesize_cantonese",
+            side_effect=CantoneseSpeechUnavailable("macOS 未提供粤语（香港）系统声音"),
+        ):
+            response = self.client.get("/api/bus/learn/speech", params={"text": "福田"})
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("粤语（香港）", response.json()["detail"])
 
     def test_metro_studio_save_immediately_updates_learn_and_presentation(self) -> None:
         before = self.client.get("/api/metro/presentation")

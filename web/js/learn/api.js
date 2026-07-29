@@ -25,6 +25,7 @@ const endpoints = {
   search: (query, limit) => `${base}/search?q=${encodeURIComponent(query)}&limit=${limit}`,
   language: `${base}/learn/language`,
   languageExport: `${base}/learn/language/export`,
+  speech: text => `${base}/learn/speech?text=${encodeURIComponent(text)}`,
   collector: `/${networkType}/collector`,
   map: `/${networkType}`,
 };
@@ -62,5 +63,8 @@ export const transitApi = {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
     });
+  },
+  cantoneseSpeechUrl(text) {
+    return endpoints.speech(text);
   },
 };

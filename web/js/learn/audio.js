@@ -119,6 +119,7 @@ export class StationAudioPlayer {
   constructor({
     synthesis = globalThis.speechSynthesis,
     utteranceFactory = text => new globalThis.SpeechSynthesisUtterance(text),
+    nativeSpeechUrl = null,
     voiceWaitTimeout = 1800,
     voicePollInterval = 80,
   } = {}) {
@@ -127,6 +128,7 @@ export class StationAudioPlayer {
     this.token = 0;
     this.synthesis = synthesis;
     this.utteranceFactory = utteranceFactory;
+    this.nativeSpeechUrl = nativeSpeechUrl;
     this.voiceWaitTimeout = voiceWaitTimeout;
     this.voicePollInterval = voicePollInterval;
     this.cantoneseVoicePromise = null;
@@ -204,13 +206,20 @@ export class StationAudioPlayer {
   }
 
   async speakCantonese(text) {
+    if (typeof this.nativeSpeechUrl === 'function') {
+      try {
+        return await this.playUrl(this.nativeSpeechUrl(text));
+      } catch (_) {
+        // Fall back only to an explicitly identified browser Cantonese voice.
+      }
+    }
     if (!this.synthesis?.speak || typeof this.utteranceFactory !== 'function') {
-      throw new Error('当前浏览器不支持系统粤语语音');
+      throw new Error('本机粤语服务和当前浏览器的粤语语音均不可用');
     }
     const voice = findCantoneseVoice(availableVoices(this.synthesis))
       || await this.prepareCantoneseVoice();
     if (!voice) {
-      throw new Error('未检测到粤语（香港）系统声音，已阻止 Safari 改用普通话；请安装粤语声音后重试');
+      throw new Error('本机粤语服务暂时不可用，且 Safari 未暴露粤语声音；已阻止 Safari 改用普通话');
     }
     const token = ++this.token;
     return new Promise((resolve, reject) => {

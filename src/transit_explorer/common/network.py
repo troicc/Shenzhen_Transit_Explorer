@@ -11,11 +11,12 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from .cache import NetworkCache
 from .language import StationLanguageStore
+from .speech import CantoneseSpeechUnavailable, synthesize_cantonese
 
 
 Normalizer = Callable[[str], str]
@@ -323,6 +324,25 @@ def create_network_router(service: NetworkService) -> APIRouter:
     @router.get("/learn/language/export")
     def export_language() -> JSONResponse:
         return service.export_language()
+
+    @router.get("/learn/speech")
+    def cantonese_speech(
+        text: str = Query(..., min_length=1, max_length=120),
+    ) -> Response:
+        try:
+            audio = synthesize_cantonese(text)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except CantoneseSpeechUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return Response(
+            content=audio.content,
+            media_type="audio/mp4",
+            headers={
+                "Cache-Control": "private, max-age=86400",
+                "X-Transit-Voice": audio.voice,
+            },
+        )
 
     @router.get("/search")
     def search(

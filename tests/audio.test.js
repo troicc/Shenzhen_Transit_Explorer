@@ -89,3 +89,27 @@ test('StationAudioPlayer blocks speech when Safari exposes only Mandarin', async
   );
   assert.equal(speakCalls, 0);
 });
+
+test('StationAudioPlayer uses native Cantonese audio before Safari Web Speech voices', async () => {
+  let speakCalls = 0;
+  let playedUrl = '';
+  const synthesis = {
+    getVoices: () => [{lang: 'zh-CN', name: 'Ting-Ting'}],
+    addEventListener() {},
+    removeEventListener() {},
+    cancel() {},
+    speak() { speakCalls += 1; },
+  };
+  const player = new StationAudioPlayer({
+    synthesis,
+    utteranceFactory: text => ({text}),
+    nativeSpeechUrl: text => `/api/metro/learn/speech?text=${encodeURIComponent(text)}`,
+    voiceWaitTimeout: 0,
+  });
+  player.playUrl = async url => { playedUrl = url; };
+
+  await player.speakCantonese('会展中心');
+
+  assert.equal(playedUrl, '/api/metro/learn/speech?text=%E4%BC%9A%E5%B1%95%E4%B8%AD%E5%BF%83');
+  assert.equal(speakCalls, 0);
+});

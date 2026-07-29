@@ -1,8 +1,8 @@
 import {$, clamp, damp, debounce, escapeHtml, normalizePinyin, routeColor, showToast, travelIndex} from './core.js?v=3';
-import {transitApi} from './api.js';
+import {transitApi} from './api.js?v=2';
 import {buildRouteGeometry, routeGeometryCacheKey} from './geometry.js';
 import {createJourneyFrame} from './journey.js';
-import {deleteLocalAudio, getLocalAudio, putLocalAudio, StationAudioPlayer} from './audio.js';
+import {deleteLocalAudio, getLocalAudio, putLocalAudio, StationAudioPlayer} from './audio.js?v=2';
 import {LearnExperience} from './experience.js';
 import {
   fallbackExperienceProfile,
@@ -131,7 +131,9 @@ const stretchController = new RouteStretchController({
   maximumScale: state.networkType === 'metro' ? 2.7 : 1.85,
   reducedMotion,
 });
-const audioPlayer = new StationAudioPlayer();
+const audioPlayer = new StationAudioPlayer({
+  nativeSpeechUrl: text => transitApi.cantoneseSpeechUrl(text),
+});
 const realMapRenderer = new RealMapFocusRenderer({container: elements.realMap});
 const experience = new LearnExperience({
   profile: state.experienceProfile,
